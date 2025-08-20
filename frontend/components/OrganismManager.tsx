@@ -3,18 +3,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Brain, Plus, Zap, Merge, Sparkles } from 'lucide-react';
+import { Brain, Plus, Zap, Sparkles, Settings, Search } from 'lucide-react';
 import backend from '~backend/client';
 import type { Organism } from '~backend/organism/types';
 import CreateOrganismDialog from './CreateOrganismDialog';
 import OrganismDetails from './OrganismDetails';
+import AutonomousControl from './AutonomousControl';
+import RAGInterface from './RAGInterface';
 
 const OrganismManager = () => {
   const [selectedOrganism, setSelectedOrganism] = useState<Organism | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -71,6 +73,30 @@ const OrganismManager = () => {
     },
   });
 
+  const upgradeMutation = useMutation({
+    mutationFn: (organismId: string) =>
+      backend.organism.upgradeOrganism({
+        organism_id: organismId,
+        upgrade_type: 'performance',
+        upgrade_source: 'self_analysis'
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisms'] });
+      toast({
+        title: 'Upgrade Initiated',
+        description: 'Organism upgrade process has been started.',
+      });
+    },
+    onError: (error) => {
+      console.error('Upgrade failed:', error);
+      toast({
+        title: 'Upgrade Failed',
+        description: 'Failed to initiate organism upgrade.',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800';
@@ -96,7 +122,7 @@ const OrganismManager = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Organism Manager</h1>
           <p className="text-gray-600 mt-2">
-            Create, evolve, and manage your AI organisms
+            Create, evolve, and manage your autonomous AI organisms
           </p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)}>
@@ -167,6 +193,18 @@ const OrganismManager = () => {
                         <Zap className="h-3 w-3 mr-1" />
                         Heal
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          upgradeMutation.mutate(organism.id);
+                        }}
+                        disabled={organism.status !== 'active'}
+                      >
+                        <Settings className="h-3 w-3 mr-1" />
+                        Upgrade
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -177,15 +215,50 @@ const OrganismManager = () => {
 
         <div className="lg:col-span-1">
           {selectedOrganism ? (
-            <OrganismDetails 
-              organism={selectedOrganism} 
-              onClose={() => setSelectedOrganism(null)}
-            />
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="control">Control</TabsTrigger>
+                <TabsTrigger value="rag">RAG</TabsTrigger>
+                <TabsTrigger value="learn">Learn</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="overview" className="mt-4">
+                <OrganismDetails 
+                  organism={selectedOrganism} 
+                  onClose={() => setSelectedOrganism(null)}
+                />
+              </TabsContent>
+              
+              <TabsContent value="control" className="mt-4">
+                <AutonomousControl organism={selectedOrganism} />
+              </TabsContent>
+              
+              <TabsContent value="rag" className="mt-4">
+                <RAGInterface organism={selectedOrganism} />
+              </TabsContent>
+              
+              <TabsContent value="learn" className="mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Search className="h-5 w-5 mr-2 text-green-600" />
+                      Learning Interface
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-600 text-center py-8">
+                      Learning interface coming soon...
+                    </p>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           ) : (
             <Card>
               <CardContent className="p-6 text-center text-gray-500">
                 <Brain className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>Select an organism to view details</p>
+                <p>Select an organism to view details and controls</p>
               </CardContent>
             </Card>
           )}

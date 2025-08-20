@@ -33,7 +33,7 @@ class OpenRouterClient {
 
   constructor() {
     const keysString = openRouterKeys();
-    this.apiKeys = keysString.split(',').map(key => key.trim());
+    this.apiKeys = keysString.split(',').map(key => key.trim()).filter(key => key.length > 0);
   }
 
   async makeRequest(request: LLMRequest): Promise<LLMResponse> {
@@ -163,6 +163,120 @@ Return the response as a structured JSON object.
       return JSON.parse(response);
     } catch {
       return { research: response };
+    }
+  }
+
+  async generateEvolutionStrategy(
+    organism: any,
+    currentPerformance: any,
+    targetImprovements: string[]
+  ): Promise<any> {
+    const systemPrompt = 'You are an AI organism evolution strategist. Generate evolution strategies that improve organism capabilities while maintaining stability.';
+    
+    const prompt = `
+Current Organism:
+${JSON.stringify(organism, null, 2)}
+
+Current Performance:
+${JSON.stringify(currentPerformance, null, 2)}
+
+Target Improvements:
+${targetImprovements.join(', ')}
+
+Generate an evolution strategy including:
+1. Specific genetic/capability modifications
+2. Expected performance improvements
+3. Risk assessment
+4. Implementation steps
+5. Success criteria
+
+Return as structured JSON.`;
+
+    const response = await this.generateText(prompt, systemPrompt);
+    
+    try {
+      return JSON.parse(response);
+    } catch {
+      return { 
+        strategy: response,
+        modifications: targetImprovements,
+        risk_level: 'medium'
+      };
+    }
+  }
+
+  async generateTaskDecomposition(
+    taskDescription: string,
+    complexity: number,
+    availableOrganisms: any[]
+  ): Promise<any> {
+    const systemPrompt = 'You are a task decomposition expert for AI organism systems. Break down complex tasks into manageable subtasks.';
+    
+    const prompt = `
+Task: ${taskDescription}
+Complexity Level: ${complexity}
+Available Organisms: ${availableOrganisms.length}
+
+Organism Capabilities:
+${availableOrganisms.map(o => `- ${o.name}: ${o.capabilities.join(', ')}`).join('\n')}
+
+Decompose this task into:
+1. Subtasks with clear objectives
+2. Resource requirements for each subtask
+3. Dependencies between subtasks
+4. Optimal organism assignments
+5. Execution timeline
+
+Return as structured JSON.`;
+
+    const response = await this.generateText(prompt, systemPrompt);
+    
+    try {
+      return JSON.parse(response);
+    } catch {
+      return {
+        subtasks: [{ name: taskDescription, complexity: complexity }],
+        assignments: [],
+        timeline: 'unknown'
+      };
+    }
+  }
+
+  async generateInternetResearch(
+    topic: string,
+    researchDepth: 'basic' | 'intermediate' | 'advanced',
+    specificQuestions?: string[]
+  ): Promise<any> {
+    const systemPrompt = 'You are an advanced internet research AI. Provide comprehensive research on topics with citations and structured analysis.';
+    
+    const prompt = `
+Research Topic: ${topic}
+Research Depth: ${researchDepth}
+${specificQuestions ? `Specific Questions:\n${specificQuestions.map(q => `- ${q}`).join('\n')}` : ''}
+
+Provide comprehensive research including:
+1. Overview and key concepts
+2. Current trends and developments
+3. Technical specifications (if applicable)
+4. Best practices and recommendations
+5. Potential applications and use cases
+6. Limitations and considerations
+7. Future outlook
+
+Return as structured JSON with sources and confidence ratings.`;
+
+    const response = await this.generateText(prompt, systemPrompt);
+    
+    try {
+      return JSON.parse(response);
+    } catch {
+      return {
+        topic: topic,
+        overview: response,
+        confidence: 0.7,
+        sources: ['LLM Knowledge Base'],
+        timestamp: new Date().toISOString()
+      };
     }
   }
 }
