@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Brain, Plus, Zap, Sparkles, Settings, Search } from 'lucide-react';
+import { Brain, Plus, Zap, Sparkles, Settings, Search, Database } from 'lucide-react';
 import backend from '~backend/client';
 import type { Organism } from '~backend/organism/types';
 import CreateOrganismDialog from './CreateOrganismDialog';
 import OrganismDetails from './OrganismDetails';
 import AutonomousControl from './AutonomousControl';
 import RAGInterface from './RAGInterface';
+import MemoryManager from './MemoryManager';
 
 const OrganismManager = () => {
   const [selectedOrganism, setSelectedOrganism] = useState<Organism | null>(null);
@@ -167,6 +168,12 @@ const OrganismManager = () => {
                         {(organism.performance_metrics.success_rate * 100).toFixed(1)}%
                       </span>
                     </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Memory Size:</span>
+                      <span className="font-medium">
+                        {JSON.stringify(organism.memory).length} bytes
+                      </span>
+                    </div>
                     
                     <div className="flex space-x-2 pt-2">
                       <Button
@@ -216,10 +223,11 @@ const OrganismManager = () => {
         <div className="lg:col-span-1">
           {selectedOrganism ? (
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="control">Control</TabsTrigger>
                 <TabsTrigger value="rag">RAG</TabsTrigger>
+                <TabsTrigger value="memory">Memory</TabsTrigger>
                 <TabsTrigger value="learn">Learn</TabsTrigger>
               </TabsList>
               
@@ -236,6 +244,10 @@ const OrganismManager = () => {
               
               <TabsContent value="rag" className="mt-4">
                 <RAGInterface organism={selectedOrganism} />
+              </TabsContent>
+              
+              <TabsContent value="memory" className="mt-4">
+                <MemoryManager organism={selectedOrganism} />
               </TabsContent>
               
               <TabsContent value="learn" className="mt-4">

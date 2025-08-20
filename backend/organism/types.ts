@@ -12,6 +12,10 @@ export interface Organism {
   created_at: Date;
   updated_at: Date;
   last_active: Date;
+  memory_version?: number;
+  memory_size_bytes?: number;
+  last_memory_compression?: Date;
+  memory_optimization_score?: number;
 }
 
 export type OrganismStatus = 'active' | 'evolving' | 'merging' | 'healing' | 'dormant' | 'deprecated';
@@ -92,7 +96,7 @@ export interface KnowledgeEntry {
   updated_at: Date;
 }
 
-export type KnowledgeType = 'codebase_analysis' | 'technology_pattern' | 'optimization_technique' | 'error_solution' | 'task_strategy' | 'internet_research';
+export type KnowledgeType = 'codebase_analysis' | 'technology_pattern' | 'optimization_technique' | 'error_solution' | 'task_strategy' | 'internet_research' | 'memory_management' | 'shared_knowledge' | 'inherited_knowledge';
 
 export interface CreateOrganismRequest {
   name: string;
@@ -124,4 +128,16 @@ export interface LearningRequest {
   source_type: 'codebase' | 'internet' | 'technology_docs';
   source_url?: string;
   learning_objectives: string[];
+}
+
+export interface MemoryPersistence {
+  id: string;
+  persistence_id: string;
+  organism_id: string;
+  persistence_level: 'session' | 'permanent' | 'critical_only';
+  memory_data: Record<string, any>;
+  backup_location?: string;
+  created_at: Date;
+  restored_at?: Date;
+  is_active: boolean;
 }
