@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Brain, Plus, Zap, Sparkles, Settings, Search, Database, Activity } from 'lucide-react';
+import { Brain, Plus, Zap, Sparkles, Settings, Search, Database, Activity, Users } from 'lucide-react';
 import backend from '~backend/client';
 import type { Organism } from '~backend/organism/types';
 import CreateOrganismDialog from './CreateOrganismDialog';
@@ -14,7 +14,9 @@ import AutonomousControl from './AutonomousControl';
 import RAGInterface from './RAGInterface';
 import MemoryManager from './MemoryManager';
 import LearningInterface from './LearningInterface';
+import CollaborationInterface from './CollaborationInterface';
 import EcosystemDashboard from './EcosystemDashboard';
+import ErrorBoundary from './ErrorBoundary';
 
 const OrganismManager = () => {
   const [selectedOrganism, setSelectedOrganism] = useState<Organism | null>(null);
@@ -121,194 +123,207 @@ const OrganismManager = () => {
   }
 
   if (viewMode === 'ecosystem') {
-    return <EcosystemDashboard />;
+    return (
+      <ErrorBoundary>
+        <EcosystemDashboard />
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Organism Manager</h1>
-          <p className="text-gray-600 mt-2">
-            Create, evolve, and manage your autonomous AI organisms
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          <Button 
-            variant={viewMode === 'organisms' ? 'default' : 'outline'}
-            onClick={() => setViewMode('organisms')}
-          >
-            <Brain className="h-4 w-4 mr-2" />
-            Organisms
-          </Button>
-          <Button 
-            variant={viewMode === 'ecosystem' ? 'default' : 'outline'}
-            onClick={() => setViewMode('ecosystem')}
-          >
-            <Activity className="h-4 w-4 mr-2" />
-            Ecosystem
-          </Button>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create Organism
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {organisms?.organisms.map((organism) => (
-              <Card 
-                key={organism.id} 
-                className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => setSelectedOrganism(organism)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center">
-                      <Brain className="h-5 w-5 mr-2 text-blue-600" />
-                      {organism.name}
-                    </CardTitle>
-                    <Badge className={getStatusColor(organism.status)}>
-                      {organism.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Generation:</span>
-                      <span className="font-medium">{organism.generation}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Capabilities:</span>
-                      <span className="font-medium">{organism.capabilities.length}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Success Rate:</span>
-                      <span className="font-medium">
-                        {(organism.performance_metrics.success_rate * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Memory Size:</span>
-                      <span className="font-medium">
-                        {JSON.stringify(organism.memory).length} bytes
-                      </span>
-                    </div>
-                    
-                    <div className="flex space-x-2 pt-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          evolveMutation.mutate(organism.id);
-                        }}
-                        disabled={organism.status !== 'active'}
-                      >
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        Evolve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          healMutation.mutate(organism.id);
-                        }}
-                        disabled={organism.status === 'healing'}
-                      >
-                        <Zap className="h-3 w-3 mr-1" />
-                        Heal
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          upgradeMutation.mutate(organism.id);
-                        }}
-                        disabled={organism.status !== 'active'}
-                      >
-                        <Settings className="h-3 w-3 mr-1" />
-                        Upgrade
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+    <ErrorBoundary>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Organism Manager</h1>
+            <p className="text-gray-600 mt-2">
+              Create, evolve, and manage your autonomous AI organisms
+            </p>
+          </div>
+          <div className="flex space-x-2">
+            <Button 
+              variant={viewMode === 'organisms' ? 'default' : 'outline'}
+              onClick={() => setViewMode('organisms')}
+            >
+              <Brain className="h-4 w-4 mr-2" />
+              Organisms
+            </Button>
+            <Button 
+              variant={viewMode === 'ecosystem' ? 'default' : 'outline'}
+              onClick={() => setViewMode('ecosystem')}
+            >
+              <Activity className="h-4 w-4 mr-2" />
+              Ecosystem
+            </Button>
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Organism
+            </Button>
           </div>
         </div>
 
-        <div className="lg:col-span-1">
-          {selectedOrganism ? (
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="control">Control</TabsTrigger>
-                <TabsTrigger value="advanced">Advanced</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="overview" className="mt-4">
-                <OrganismDetails 
-                  organism={selectedOrganism} 
-                  onClose={() => setSelectedOrganism(null)}
-                />
-              </TabsContent>
-              
-              <TabsContent value="control" className="mt-4">
-                <Tabs defaultValue="autonomous">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="autonomous">Autonomous</TabsTrigger>
-                    <TabsTrigger value="rag">RAG</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="autonomous" className="mt-4">
-                    <AutonomousControl organism={selectedOrganism} />
-                  </TabsContent>
-                  
-                  <TabsContent value="rag" className="mt-4">
-                    <RAGInterface organism={selectedOrganism} />
-                  </TabsContent>
-                </Tabs>
-              </TabsContent>
-              
-              <TabsContent value="advanced" className="mt-4">
-                <Tabs defaultValue="memory">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="memory">Memory</TabsTrigger>
-                    <TabsTrigger value="learning">Learning</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="memory" className="mt-4">
-                    <MemoryManager organism={selectedOrganism} />
-                  </TabsContent>
-                  
-                  <TabsContent value="learning" className="mt-4">
-                    <LearningInterface organism={selectedOrganism} />
-                  </TabsContent>
-                </Tabs>
-              </TabsContent>
-            </Tabs>
-          ) : (
-            <Card>
-              <CardContent className="p-6 text-center text-gray-500">
-                <Brain className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>Select an organism to view details and controls</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {organisms?.organisms.map((organism) => (
+                <Card 
+                  key={organism.id} 
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => setSelectedOrganism(organism)}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center">
+                        <Brain className="h-5 w-5 mr-2 text-blue-600" />
+                        {organism.name}
+                      </CardTitle>
+                      <Badge className={getStatusColor(organism.status)}>
+                        {organism.status}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Generation:</span>
+                        <span className="font-medium">{organism.generation}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Capabilities:</span>
+                        <span className="font-medium">{organism.capabilities.length}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Success Rate:</span>
+                        <span className="font-medium">
+                          {(organism.performance_metrics.success_rate * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Memory Size:</span>
+                        <span className="font-medium">
+                          {JSON.stringify(organism.memory).length} bytes
+                        </span>
+                      </div>
+                      
+                      <div className="flex space-x-2 pt-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            evolveMutation.mutate(organism.id);
+                          }}
+                          disabled={organism.status !== 'active'}
+                        >
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          Evolve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            healMutation.mutate(organism.id);
+                          }}
+                          disabled={organism.status === 'healing'}
+                        >
+                          <Zap className="h-3 w-3 mr-1" />
+                          Heal
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            upgradeMutation.mutate(organism.id);
+                          }}
+                          disabled={organism.status !== 'active'}
+                        >
+                          <Settings className="h-3 w-3 mr-1" />
+                          Upgrade
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
 
-      <CreateOrganismDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-      />
-    </div>
+          <div className="lg:col-span-1">
+            {selectedOrganism ? (
+              <ErrorBoundary>
+                <Tabs value={activeTab} onValueChange={setActiveTab}>
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="control">Control</TabsTrigger>
+                    <TabsTrigger value="advanced">Advanced</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="overview" className="mt-4">
+                    <OrganismDetails 
+                      organism={selectedOrganism} 
+                      onClose={() => setSelectedOrganism(null)}
+                    />
+                  </TabsContent>
+                  
+                  <TabsContent value="control" className="mt-4">
+                    <Tabs defaultValue="autonomous">
+                      <TabsList className="grid w-full grid-cols-3">
+                        <TabsTrigger value="autonomous">Autonomous</TabsTrigger>
+                        <TabsTrigger value="rag">RAG</TabsTrigger>
+                        <TabsTrigger value="collaboration">Collaborate</TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="autonomous" className="mt-4">
+                        <AutonomousControl organism={selectedOrganism} />
+                      </TabsContent>
+                      
+                      <TabsContent value="rag" className="mt-4">
+                        <RAGInterface organism={selectedOrganism} />
+                      </TabsContent>
+                      
+                      <TabsContent value="collaboration" className="mt-4">
+                        <CollaborationInterface organism={selectedOrganism} />
+                      </TabsContent>
+                    </Tabs>
+                  </TabsContent>
+                  
+                  <TabsContent value="advanced" className="mt-4">
+                    <Tabs defaultValue="memory">
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="memory">Memory</TabsTrigger>
+                        <TabsTrigger value="learning">Learning</TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="memory" className="mt-4">
+                        <MemoryManager organism={selectedOrganism} />
+                      </TabsContent>
+                      
+                      <TabsContent value="learning" className="mt-4">
+                        <LearningInterface organism={selectedOrganism} />
+                      </TabsContent>
+                    </Tabs>
+                  </TabsContent>
+                </Tabs>
+              </ErrorBoundary>
+            ) : (
+              <Card>
+                <CardContent className="p-6 text-center text-gray-500">
+                  <Brain className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>Select an organism to view details and controls</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+
+        <CreateOrganismDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+        />
+      </div>
+    </ErrorBoundary>
   );
 };
 

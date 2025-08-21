@@ -141,6 +141,10 @@ import {
     selfReplicate as api_organism_autonomous_controller_selfReplicate
 } from "~backend/organism/autonomous_controller";
 import {
+    createSwarmTask as api_organism_collaboration_endpoints_createSwarmTask,
+    makeCollectiveDecision as api_organism_collaboration_endpoints_makeCollectiveDecision
+} from "~backend/organism/collaboration_endpoints";
+import {
     createKnowledgeNetwork as api_organism_collaboration_system_createKnowledgeNetwork,
     executeCollectiveTask as api_organism_collaboration_system_executeCollectiveTask,
     initiateCollaboration as api_organism_collaboration_system_initiateCollaboration,
@@ -218,6 +222,7 @@ export namespace organism {
             this.create = this.create.bind(this)
             this.createContextAwareTask = this.createContextAwareTask.bind(this)
             this.createKnowledgeNetwork = this.createKnowledgeNetwork.bind(this)
+            this.createSwarmTask = this.createSwarmTask.bind(this)
             this.createTask = this.createTask.bind(this)
             this.evolve = this.evolve.bind(this)
             this.evolveMemoryStructure = this.evolveMemoryStructure.bind(this)
@@ -233,6 +238,7 @@ export namespace organism {
             this.learn = this.learn.bind(this)
             this.list = this.list.bind(this)
             this.listTasks = this.listTasks.bind(this)
+            this.makeCollectiveDecision = this.makeCollectiveDecision.bind(this)
             this.merge = this.merge.bind(this)
             this.operateComputer = this.operateComputer.bind(this)
             this.optimizeEcosystem = this.optimizeEcosystem.bind(this)
@@ -399,6 +405,15 @@ export namespace organism {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/organisms/knowledge-network`, {method: "POST", body: JSON.stringify(params)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_system_createKnowledgeNetwork>
+        }
+
+        /**
+         * Creates and coordinates swarm-based task execution.
+         */
+        public async createSwarmTask(params: RequestType<typeof api_organism_collaboration_endpoints_createSwarmTask>): Promise<ResponseType<typeof api_organism_collaboration_endpoints_createSwarmTask>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/swarm-task`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_endpoints_createSwarmTask>
         }
 
         /**
@@ -594,6 +609,15 @@ export namespace organism {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/tasks`, {method: "GET", body: undefined})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_tasks_listTasks>
+        }
+
+        /**
+         * Facilitates collective decision making among organisms.
+         */
+        public async makeCollectiveDecision(params: RequestType<typeof api_organism_collaboration_endpoints_makeCollectiveDecision>): Promise<ResponseType<typeof api_organism_collaboration_endpoints_makeCollectiveDecision>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/collective-decision`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_endpoints_makeCollectiveDecision>
         }
 
         /**

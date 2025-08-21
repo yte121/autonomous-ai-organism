@@ -6,33 +6,60 @@ import Dashboard from './components/Dashboard';
 import OrganismManager from './components/OrganismManager';
 import TaskManager from './components/TaskManager';
 import Navigation from './components/Navigation';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutes
       refetchOnWindowFocus: false,
+      retry: (failureCount, error) => {
+        // Don't retry on 4xx errors
+        if (error && typeof error === 'object' && 'status' in error) {
+          const status = (error as any).status;
+          if (status >= 400 && status < 500) {
+            return false;
+          }
+        }
+        return failureCount < 3;
+      },
+    },
+    mutations: {
+      retry: (failureCount, error) => {
+        // Don't retry mutations on client errors
+        if (error && typeof error === 'object' && 'status' in error) {
+          const status = (error as any).status;
+          if (status >= 400 && status < 500) {
+            return false;
+          }
+        }
+        return failureCount < 2;
+      },
     },
   },
 });
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router>
-        <div className="min-h-screen bg-gray-50">
-          <Navigation />
-          <main className="container mx-auto px-4 py-8">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/organisms" element={<OrganismManager />} />
-              <Route path="/tasks" element={<TaskManager />} />
-            </Routes>
-          </main>
-          <Toaster />
-        </div>
-      </Router>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Router>
+          <div className="min-h-screen bg-gray-50">
+            <Navigation />
+            <main className="container mx-auto px-4 py-8">
+              <ErrorBoundary>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/organisms" element={<OrganismManager />} />
+                  <Route path="/tasks" element={<TaskManager />} />
+                </Routes>
+              </ErrorBoundary>
+            </main>
+            <Toaster />
+          </div>
+        </Router>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
