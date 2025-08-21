@@ -141,13 +141,31 @@ import {
     selfReplicate as api_organism_autonomous_controller_selfReplicate
 } from "~backend/organism/autonomous_controller";
 import {
+    createKnowledgeNetwork as api_organism_collaboration_system_createKnowledgeNetwork,
+    executeCollectiveTask as api_organism_collaboration_system_executeCollectiveTask,
+    initiateCollaboration as api_organism_collaboration_system_initiateCollaboration,
+    swarmIntelligence as api_organism_collaboration_system_swarmIntelligence
+} from "~backend/organism/collaboration_system";
+import {
     getMessages as api_organism_communicate_getMessages,
     sendMessage as api_organism_communicate_sendMessage
 } from "~backend/organism/communicate";
 import { create as api_organism_create_create } from "~backend/organism/create";
+import {
+    allocateResources as api_organism_ecosystem_manager_allocateResources,
+    analyzeDiversity as api_organism_ecosystem_manager_analyzeDiversity,
+    getEcosystemHealth as api_organism_ecosystem_manager_getEcosystemHealth,
+    guideEcosystemEvolution as api_organism_ecosystem_manager_guideEcosystemEvolution,
+    optimizeEcosystem as api_organism_ecosystem_manager_optimizeEcosystem
+} from "~backend/organism/ecosystem_manager";
 import { evolve as api_organism_evolve_evolve } from "~backend/organism/evolve";
 import { heal as api_organism_heal_heal } from "~backend/organism/heal";
 import { learn as api_organism_learn_learn } from "~backend/organism/learn";
+import {
+    advancedLearning as api_organism_learning_system_advancedLearning,
+    analyzeCodebase as api_organism_learning_system_analyzeCodebase,
+    peerLearning as api_organism_learning_system_peerLearning
+} from "~backend/organism/learning_system";
 import { list as api_organism_list_list } from "~backend/organism/list";
 import {
     analyzeMemoryLineage as api_organism_memory_inheritance_analyzeMemoryLineage,
@@ -190,26 +208,37 @@ export namespace organism {
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
             this.adoptTechnology = this.adoptTechnology.bind(this)
+            this.advancedLearning = this.advancedLearning.bind(this)
+            this.allocateResources = this.allocateResources.bind(this)
+            this.analyzeCodebase = this.analyzeCodebase.bind(this)
+            this.analyzeDiversity = this.analyzeDiversity.bind(this)
             this.analyzeMemoryLineage = this.analyzeMemoryLineage.bind(this)
             this.analyzeMemoryPatterns = this.analyzeMemoryPatterns.bind(this)
             this.compressMemories = this.compressMemories.bind(this)
             this.create = this.create.bind(this)
             this.createContextAwareTask = this.createContextAwareTask.bind(this)
+            this.createKnowledgeNetwork = this.createKnowledgeNetwork.bind(this)
             this.createTask = this.createTask.bind(this)
             this.evolve = this.evolve.bind(this)
             this.evolveMemoryStructure = this.evolveMemoryStructure.bind(this)
             this.executeAutonomous = this.executeAutonomous.bind(this)
+            this.executeCollectiveTask = this.executeCollectiveTask.bind(this)
+            this.getEcosystemHealth = this.getEcosystemHealth.bind(this)
             this.getMessages = this.getMessages.bind(this)
+            this.guideEcosystemEvolution = this.guideEcosystemEvolution.bind(this)
             this.heal = this.heal.bind(this)
             this.indexKnowledge = this.indexKnowledge.bind(this)
             this.inheritMemories = this.inheritMemories.bind(this)
+            this.initiateCollaboration = this.initiateCollaboration.bind(this)
             this.learn = this.learn.bind(this)
             this.list = this.list.bind(this)
             this.listTasks = this.listTasks.bind(this)
             this.merge = this.merge.bind(this)
             this.operateComputer = this.operateComputer.bind(this)
+            this.optimizeEcosystem = this.optimizeEcosystem.bind(this)
             this.optimizeMemoryStructure = this.optimizeMemoryStructure.bind(this)
             this.optimizePerformance = this.optimizePerformance.bind(this)
+            this.peerLearning = this.peerLearning.bind(this)
             this.persistMemories = this.persistMemories.bind(this)
             this.queryKnowledgeGraph = this.queryKnowledgeGraph.bind(this)
             this.ragQuery = this.ragQuery.bind(this)
@@ -217,6 +246,7 @@ export namespace organism {
             this.selfReplicate = this.selfReplicate.bind(this)
             this.semanticSearch = this.semanticSearch.bind(this)
             this.sendMessage = this.sendMessage.bind(this)
+            this.swarmIntelligence = this.swarmIntelligence.bind(this)
             this.synthesizeCollectiveMemory = this.synthesizeCollectiveMemory.bind(this)
             this.transferKnowledge = this.transferKnowledge.bind(this)
             this.updateTaskProgress = this.updateTaskProgress.bind(this)
@@ -238,6 +268,57 @@ export namespace organism {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/organisms/${encodeURIComponent(params.organism_id)}/adopt-technology`, {method: "POST", body: JSON.stringify(body)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_upgrade_system_adoptTechnology>
+        }
+
+        /**
+         * Advanced learning system for organisms to acquire new knowledge and capabilities.
+         */
+        public async advancedLearning(params: RequestType<typeof api_organism_learning_system_advancedLearning>): Promise<ResponseType<typeof api_organism_learning_system_advancedLearning>> {
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                "depth_level":         params["depth_level"],
+                "learning_objectives": params["learning_objectives"],
+                "learning_type":       params["learning_type"],
+                "source_data":         params["source_data"],
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/${encodeURIComponent(params.organism_id)}/advanced-learning`, {method: "POST", body: JSON.stringify(body)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_learning_system_advancedLearning>
+        }
+
+        /**
+         * Manages resource allocation across organisms in the ecosystem.
+         */
+        public async allocateResources(params: RequestType<typeof api_organism_ecosystem_manager_allocateResources>): Promise<ResponseType<typeof api_organism_ecosystem_manager_allocateResources>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/ecosystem/allocate-resources`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_ecosystem_manager_allocateResources>
+        }
+
+        /**
+         * Analyzes codebases to extract patterns, architectures, and best practices.
+         */
+        public async analyzeCodebase(params: RequestType<typeof api_organism_learning_system_analyzeCodebase>): Promise<ResponseType<typeof api_organism_learning_system_analyzeCodebase>> {
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                "analysis_focus":   params["analysis_focus"],
+                "extraction_depth": params["extraction_depth"],
+                "repository_url":   params["repository_url"],
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/${encodeURIComponent(params.organism_id)}/analyze-codebase`, {method: "POST", body: JSON.stringify(body)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_learning_system_analyzeCodebase>
+        }
+
+        /**
+         * Analyzes and maintains diversity within the organism ecosystem.
+         */
+        public async analyzeDiversity(params: RequestType<typeof api_organism_ecosystem_manager_analyzeDiversity>): Promise<ResponseType<typeof api_organism_ecosystem_manager_analyzeDiversity>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/ecosystem/diversity`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_ecosystem_manager_analyzeDiversity>
         }
 
         /**
@@ -312,6 +393,15 @@ export namespace organism {
         }
 
         /**
+         * Creates knowledge networks for continuous learning and information sharing.
+         */
+        public async createKnowledgeNetwork(params: RequestType<typeof api_organism_collaboration_system_createKnowledgeNetwork>): Promise<ResponseType<typeof api_organism_collaboration_system_createKnowledgeNetwork>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/knowledge-network`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_system_createKnowledgeNetwork>
+        }
+
+        /**
          * Creates a new task for organisms to execute.
          */
         public async createTask(params: RequestType<typeof api_organism_tasks_createTask>): Promise<ResponseType<typeof api_organism_tasks_createTask>> {
@@ -367,12 +457,52 @@ export namespace organism {
         }
 
         /**
+         * Coordinates collective task execution with multiple organisms.
+         */
+        public async executeCollectiveTask(params: RequestType<typeof api_organism_collaboration_system_executeCollectiveTask>): Promise<ResponseType<typeof api_organism_collaboration_system_executeCollectiveTask>> {
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                "communication_protocol":     params["communication_protocol"],
+                "coordination_strategy":      params["coordination_strategy"],
+                "participating_organism_ids": params["participating_organism_ids"],
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/tasks/${encodeURIComponent(params.task_id)}/collective-execution`, {method: "POST", body: JSON.stringify(body)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_system_executeCollectiveTask>
+        }
+
+        /**
+         * Monitors and maintains the health of the AI organism ecosystem.
+         */
+        public async getEcosystemHealth(params: RequestType<typeof api_organism_ecosystem_manager_getEcosystemHealth>): Promise<ResponseType<typeof api_organism_ecosystem_manager_getEcosystemHealth>> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                "include_metrics":         params["include_metrics"] === undefined ? undefined : String(params["include_metrics"]),
+                "include_recommendations": params["include_recommendations"] === undefined ? undefined : String(params["include_recommendations"]),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/ecosystem/health`, {query, method: "GET", body: undefined})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_ecosystem_manager_getEcosystemHealth>
+        }
+
+        /**
          * Retrieves messages for a specific organism.
          */
         public async getMessages(params: { organism_id: string }): Promise<ResponseType<typeof api_organism_communicate_getMessages>> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/organisms/${encodeURIComponent(params.organism_id)}/messages`, {method: "GET", body: undefined})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_communicate_getMessages>
+        }
+
+        /**
+         * Guides ecosystem-wide evolution based on environmental pressures.
+         */
+        public async guideEcosystemEvolution(params: RequestType<typeof api_organism_ecosystem_manager_guideEcosystemEvolution>): Promise<ResponseType<typeof api_organism_ecosystem_manager_guideEcosystemEvolution>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/ecosystem/evolve`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_ecosystem_manager_guideEcosystemEvolution>
         }
 
         /**
@@ -414,6 +544,15 @@ export namespace organism {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/organisms/inherit-memories`, {method: "POST", body: JSON.stringify(params)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_memory_inheritance_inheritMemories>
+        }
+
+        /**
+         * Facilitates collaboration between multiple organisms for complex objectives.
+         */
+        public async initiateCollaboration(params: RequestType<typeof api_organism_collaboration_system_initiateCollaboration>): Promise<ResponseType<typeof api_organism_collaboration_system_initiateCollaboration>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/collaborate`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_system_initiateCollaboration>
         }
 
         /**
@@ -483,6 +622,15 @@ export namespace organism {
         }
 
         /**
+         * Optimizes the ecosystem for better performance and resource utilization.
+         */
+        public async optimizeEcosystem(params: RequestType<typeof api_organism_ecosystem_manager_optimizeEcosystem>): Promise<ResponseType<typeof api_organism_ecosystem_manager_optimizeEcosystem>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/ecosystem/optimize`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_ecosystem_manager_optimizeEcosystem>
+        }
+
+        /**
          * Optimizes memory structure and access patterns for better performance.
          */
         public async optimizeMemoryStructure(params: RequestType<typeof api_organism_memory_manager_optimizeMemoryStructure>): Promise<ResponseType<typeof api_organism_memory_manager_optimizeMemoryStructure>> {
@@ -510,6 +658,15 @@ export namespace organism {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/organisms/${encodeURIComponent(params.organism_id)}/optimize`, {method: "POST", body: JSON.stringify(body)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_upgrade_system_optimizePerformance>
+        }
+
+        /**
+         * Enables organisms to learn from each other through peer collaboration.
+         */
+        public async peerLearning(params: RequestType<typeof api_organism_learning_system_peerLearning>): Promise<ResponseType<typeof api_organism_learning_system_peerLearning>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/peer-learning`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_learning_system_peerLearning>
         }
 
         /**
@@ -615,6 +772,15 @@ export namespace organism {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/communications`, {method: "POST", body: JSON.stringify(params)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_communicate_sendMessage>
+        }
+
+        /**
+         * Implements swarm intelligence for collective problem-solving.
+         */
+        public async swarmIntelligence(params: RequestType<typeof api_organism_collaboration_system_swarmIntelligence>): Promise<ResponseType<typeof api_organism_collaboration_system_swarmIntelligence>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/organisms/swarm-intelligence`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_organism_collaboration_system_swarmIntelligence>
         }
 
         /**

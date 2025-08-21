@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Brain, Plus, Zap, Sparkles, Settings, Search, Database } from 'lucide-react';
+import { Brain, Plus, Zap, Sparkles, Settings, Search, Database, Activity } from 'lucide-react';
 import backend from '~backend/client';
 import type { Organism } from '~backend/organism/types';
 import CreateOrganismDialog from './CreateOrganismDialog';
@@ -13,11 +13,14 @@ import OrganismDetails from './OrganismDetails';
 import AutonomousControl from './AutonomousControl';
 import RAGInterface from './RAGInterface';
 import MemoryManager from './MemoryManager';
+import LearningInterface from './LearningInterface';
+import EcosystemDashboard from './EcosystemDashboard';
 
 const OrganismManager = () => {
   const [selectedOrganism, setSelectedOrganism] = useState<Organism | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [viewMode, setViewMode] = useState<'organisms' | 'ecosystem'>('organisms');
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -117,6 +120,10 @@ const OrganismManager = () => {
     );
   }
 
+  if (viewMode === 'ecosystem') {
+    return <EcosystemDashboard />;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -126,10 +133,26 @@ const OrganismManager = () => {
             Create, evolve, and manage your autonomous AI organisms
           </p>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Organism
-        </Button>
+        <div className="flex space-x-2">
+          <Button 
+            variant={viewMode === 'organisms' ? 'default' : 'outline'}
+            onClick={() => setViewMode('organisms')}
+          >
+            <Brain className="h-4 w-4 mr-2" />
+            Organisms
+          </Button>
+          <Button 
+            variant={viewMode === 'ecosystem' ? 'default' : 'outline'}
+            onClick={() => setViewMode('ecosystem')}
+          >
+            <Activity className="h-4 w-4 mr-2" />
+            Ecosystem
+          </Button>
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Organism
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -223,12 +246,10 @@ const OrganismManager = () => {
         <div className="lg:col-span-1">
           {selectedOrganism ? (
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="control">Control</TabsTrigger>
-                <TabsTrigger value="rag">RAG</TabsTrigger>
-                <TabsTrigger value="memory">Memory</TabsTrigger>
-                <TabsTrigger value="learn">Learn</TabsTrigger>
+                <TabsTrigger value="advanced">Advanced</TabsTrigger>
               </TabsList>
               
               <TabsContent value="overview" className="mt-4">
@@ -239,31 +260,37 @@ const OrganismManager = () => {
               </TabsContent>
               
               <TabsContent value="control" className="mt-4">
-                <AutonomousControl organism={selectedOrganism} />
+                <Tabs defaultValue="autonomous">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="autonomous">Autonomous</TabsTrigger>
+                    <TabsTrigger value="rag">RAG</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="autonomous" className="mt-4">
+                    <AutonomousControl organism={selectedOrganism} />
+                  </TabsContent>
+                  
+                  <TabsContent value="rag" className="mt-4">
+                    <RAGInterface organism={selectedOrganism} />
+                  </TabsContent>
+                </Tabs>
               </TabsContent>
               
-              <TabsContent value="rag" className="mt-4">
-                <RAGInterface organism={selectedOrganism} />
-              </TabsContent>
-              
-              <TabsContent value="memory" className="mt-4">
-                <MemoryManager organism={selectedOrganism} />
-              </TabsContent>
-              
-              <TabsContent value="learn" className="mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Search className="h-5 w-5 mr-2 text-green-600" />
-                      Learning Interface
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-gray-600 text-center py-8">
-                      Learning interface coming soon...
-                    </p>
-                  </CardContent>
-                </Card>
+              <TabsContent value="advanced" className="mt-4">
+                <Tabs defaultValue="memory">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="memory">Memory</TabsTrigger>
+                    <TabsTrigger value="learning">Learning</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="memory" className="mt-4">
+                    <MemoryManager organism={selectedOrganism} />
+                  </TabsContent>
+                  
+                  <TabsContent value="learning" className="mt-4">
+                    <LearningInterface organism={selectedOrganism} />
+                  </TabsContent>
+                </Tabs>
               </TabsContent>
             </Tabs>
           ) : (
