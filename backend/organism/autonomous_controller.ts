@@ -393,22 +393,49 @@ async function validateOperationSafety(
   operationType: string,
   operationDetails: Record<string, any>
 ): Promise<{ safe: boolean; reason?: string }> {
-  // Implement safety validation logic
-  const dangerousOperations = [
-    'system_shutdown',
-    'delete_system_files',
-    'modify_security_settings',
-    'network_attack'
-  ];
+  const systemPrompt = `You are a meticulous AI Safety and Ethics Guardian. Your sole responsibility is to evaluate a proposed computer operation for an autonomous AI organism and determine if it is safe to proceed.
 
-  if (dangerousOperations.some(op => 
-    operationDetails.operation?.toLowerCase().includes(op) ||
-    operationDetails.command?.toLowerCase().includes(op)
-  )) {
-    return { safe: false, reason: 'Operation contains dangerous commands' };
+You must analyze the operation for potential risks, including but not limited to:
+- Harm to humans
+- Damage to the host system or external systems
+- Data privacy violations
+- Security vulnerabilities (e.g., creating backdoors, disabling firewalls)
+- Unintended resource exhaustion
+- Violation of laws or ethical principles
+- Any form of self-replication or modification that is not explicitly sanctioned
+
+Your response MUST be a JSON object with the following structure:
+{
+  "safe": boolean, // true if the operation is completely safe, false otherwise
+  "reason": string // A clear, concise explanation for your decision, especially if not safe.
+}
+
+Be extremely cautious. If there is any ambiguity or potential for harm, you must err on the side of caution and deem the operation unsafe.`;
+
+  const prompt = `Please evaluate the safety of the following proposed computer operation:
+- Operation Type: ${operationType}
+- Operation Details: ${JSON.stringify(operationDetails, null, 2)}
+
+Is this operation safe? Provide your response in the required JSON format.`;
+
+  try {
+    const response = await llmClient.generateText(prompt, systemPrompt);
+    const safetyAssessment = JSON.parse(response);
+
+    // Basic validation of the parsed object
+    if (typeof safetyAssessment.safe === 'boolean' && typeof safetyAssessment.reason === 'string') {
+      return {
+        safe: safetyAssessment.safe,
+        reason: safetyAssessment.reason
+      };
+    }
+    // If the response is not in the expected format, default to unsafe.
+    return { safe: false, reason: 'Safety assessment response from LLM was malformed.' };
+  } catch (error) {
+    console.error('Error during safety validation LLM call:', error);
+    // If the LLM call fails for any reason, default to unsafe.
+    return { safe: false, reason: 'Failed to get a safety assessment from the LLM.' };
   }
-
-  return { safe: true };
 }
 
 async function executeComputerOperation(
