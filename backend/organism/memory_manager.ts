@@ -228,71 +228,95 @@ async function performMemoryCompression(
   retentionThreshold: number,
   maxMemorySize: number
 ): Promise<any> {
-  const currentMemory = organism.memory;
-  const memorySize = JSON.stringify(currentMemory).length;
+  const initialMemory = JSON.parse(JSON.stringify(organism.memory)); // Deep copy
+  const initialSize = JSON.stringify(initialMemory).length;
 
-  if (memorySize <= maxMemorySize) {
+  if (initialSize <= maxMemorySize) {
     return {
-      compressedMemory: currentMemory,
+      compressedMemory: initialMemory,
       compressedCount: 0,
       reductionPercentage: 0,
-      preservedCount: Object.keys(currentMemory).length,
-      summary: "No compression needed - memory within limits"
+      preservedCount: Object.keys(initialMemory).length,
+      summary: "No compression needed - memory within limits."
     };
   }
 
-  const systemPrompt = `You are a memory compression specialist for AI organisms. Compress memories while preserving critical information based on the specified strategy.
+  let compressedMemory = initialMemory;
+  let compressedCount = 0;
 
-Current Memory Size: ${memorySize} bytes
-Max Memory Size: ${maxMemorySize} bytes
-Retention Threshold: ${retentionThreshold}
-Strategy: ${strategy}
+  const getMemorySize = (mem: any) => JSON.stringify(mem).length;
 
-Compression strategies:
-- temporal: Prioritize recent memories
-- importance: Prioritize high-importance memories
-- frequency: Prioritize frequently accessed memories
-- hybrid: Combine all factors`;
-
-  const prompt = `Current Memory Structure:
-${JSON.stringify(currentMemory, null, 2)}
-
-Compress this memory structure according to the ${strategy} strategy. Return a JSON object with:
-1. compressed_memory: The compressed memory structure
-2. compression_summary: Summary of what was compressed
-3. critical_items_preserved: List of critical items kept
-4. compression_ratio: Percentage of memory reduced
-
-Ensure critical learnings, recent experiences, and high-value knowledge are preserved.`;
-
-  const response = await llmClient.generateText(prompt, systemPrompt);
-
-  try {
-    const compressionResult = JSON.parse(response);
-    const compressedSize = JSON.stringify(compressionResult.compressed_memory).length;
-    const reductionPercentage = ((memorySize - compressedSize) / memorySize) * 100;
-
-    return {
-      compressedMemory: compressionResult.compressed_memory,
-      compressedCount: Object.keys(currentMemory).length - Object.keys(compressionResult.compressed_memory).length,
-      reductionPercentage: reductionPercentage,
-      preservedCount: Object.keys(compressionResult.compressed_memory).length,
-      summary: compressionResult.compression_summary || `Compressed using ${strategy} strategy`
-    };
-  } catch (error) {
-    // Fallback compression - remove oldest non-critical entries
-    const compressedMemory = await fallbackCompression(currentMemory, maxMemorySize);
-    const compressedSize = JSON.stringify(compressedMemory).length;
-    const reductionPercentage = ((memorySize - compressedSize) / memorySize) * 100;
-
-    return {
-      compressedMemory,
-      compressedCount: Object.keys(currentMemory).length - Object.keys(compressedMemory).length,
-      reductionPercentage,
-      preservedCount: Object.keys(compressedMemory).length,
-      summary: "Fallback compression applied due to parsing error"
-    };
+  // Find all array-based memories that can be compressed
+  const compressibleMemories: { key: string, items: any[] }[] = [];
+  for (const key in compressedMemory) {
+    if (Array.isArray(compressedMemory[key])) {
+      compressibleMemories.push({ key, items: compressedMemory[key] });
+    }
   }
+
+  // Flatten all items from compressible arrays into a single list with metadata
+  let allItems = compressibleMemories.flatMap(({ key, items }) =>
+    items.map((item, index) => ({
+      ...item,
+      _originalKey: key,
+      _originalIndex: index
+    }))
+  );
+
+  switch (strategy) {
+    case 'temporal':
+      // Sort by timestamp, oldest first. Items without a timestamp are considered oldest.
+      allItems.sort((a, b) => {
+        const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
+        const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
+        return timeA - timeB;
+      });
+      break;
+
+    case 'importance':
+      // Sort by confidence score, lowest first. Items without a score are considered least important.
+      allItems.sort((a, b) => (a.confidence_score || 0) - (b.confidence_score || 0));
+      break;
+
+    default:
+      // For other strategies, fallback to temporal for now
+      allItems.sort((a, b) => {
+        const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
+        const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
+        return timeA - timeB;
+      });
+      break;
+  }
+
+  // Iteratively remove items until memory size is within the limit
+  while (getMemorySize(compressedMemory) > maxMemorySize && allItems.length > 0) {
+    const itemToRemove = allItems.shift();
+    if (itemToRemove) {
+      const originalArray = compressedMemory[itemToRemove._originalKey];
+      if (originalArray) {
+        // Find and remove the specific item from the original array
+        const itemIndex = originalArray.findIndex((item: any) =>
+          item.timestamp === itemToRemove.timestamp && item.source === itemToRemove.source
+        );
+        if (itemIndex > -1) {
+          originalArray.splice(itemIndex, 1);
+          compressedCount++;
+        }
+      }
+    }
+  }
+
+  const finalSize = getMemorySize(compressedMemory);
+  const reductionPercentage = ((initialSize - finalSize) / initialSize) * 100;
+  const preservedCount = Object.values(compressedMemory).reduce((acc: number, val: any) => acc + (Array.isArray(val) ? val.length : 1), 0);
+
+  return {
+    compressedMemory,
+    compressedCount,
+    reductionPercentage: parseFloat(reductionPercentage.toFixed(2)),
+    preservedCount,
+    summary: `Compressed ${compressedCount} memories using '${strategy}' strategy, reducing memory by ${reductionPercentage.toFixed(2)}%.`
+  };
 }
 
 async function fallbackCompression(memory: any, maxSize: number): Promise<any> {
