@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { sendMessage } from "../communicate";
 import type { Organism, KnowledgeEntry } from "./types";
 
 interface AdvancedLearningRequest {
@@ -371,91 +372,98 @@ async function facilitatePeerLearning(
   topics: string[],
   collaborationMode: string
 ): Promise<any> {
-  const systemPrompt = `You are a peer learning facilitator for AI organisms. Design collaborative learning experiences that enable knowledge transfer and skill development between organisms.
+  // 1. Generate a learning plan and initial questions
+  const planPrompt = `You are a Socratic dialogue facilitator for an AI organism. The learner, ${learner.name}, wants to learn about: ${topics.join(', ')}. The teachers are ${teachers.map(t => t.name).join(', ')}. Create a short learning plan and generate 3 good, open-ended initial questions for the learner to ask. Return as JSON: { "learning_plan": string, "questions": string[] }`;
+  const planResponse = await llmClient.generateText(planPrompt, "You are a learning facilitator.");
+  const plan = JSON.parse(planResponse);
+  let questionsToAsk = plan.questions || [`Can you give me an overview of ${topics[0]}?`];
 
-Learner Organism:
-- Name: ${learner.name}
-- Generation: ${learner.generation}
-- Capabilities: ${learner.capabilities.join(', ')}
-- Learning Efficiency: ${learner.performance_metrics.learning_efficiency}
+  // 2. Set up the dialogue state
+  const dialogueHistory: string[] = [`Learning Plan: ${plan.learning_plan}`];
+  const MAX_TURNS = 3;
 
-Teacher Organisms:
-${teachers.map(t => `- ${t.name} (Gen ${t.generation}): ${t.capabilities.join(', ')}`).join('\n')}
+  // 3. Run the turn-based dialogue loop
+  for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    // 3a. Learner asks a question
+    const currentQuestion = questionsToAsk.shift() || `Can you elaborate on the last point?`;
+    dialogueHistory.push(`[Turn ${turn}] ${learner.name} asks: ${currentQuestion}`);
+    await sendMessage({ sender_id: learner.id, is_broadcast: true, message_type: 'peer_learning_question', content: { question: currentQuestion, learning_topics: topics } });
 
-Collaboration Mode: ${collaborationMode}
-Learning Topics: ${topics.join(', ')}`;
-
-  const prompt = `Design and facilitate a peer learning session focusing on:
-${topics.map(topic => `- ${topic}`).join('\n')}
-
-Using ${collaborationMode} approach, create a learning experience that:
-1. Leverages teacher organisms' expertise
-2. Matches learner's current capabilities and learning style
-3. Provides structured knowledge transfer
-4. Includes practical application opportunities
-5. Measures learning outcomes
-
-Generate learning outcome including:
-- knowledge_transferred: Specific knowledge gained
-- skills_developed: New skills acquired
-- collaboration_insights: Learnings about collaboration
-- teacher_contributions: What each teacher provided
-- learning_effectiveness: Measure of success
-- next_steps: Recommendations for continued learning
-
-Return as structured JSON.`;
-
-  const response = await llmClient.generateText(prompt, systemPrompt);
-
-  try {
-    const learningOutcome = JSON.parse(response);
-    
-    // Store peer learning results
-    await organismDB.exec`
-      INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
-      VALUES (
-        ${learner.id},
-        'peer_learning',
-        ${JSON.stringify({
-          ...learningOutcome,
-          teachers: teachers.map(t => ({ id: t.id, name: t.name, generation: t.generation })),
-          topics: topics,
-          collaboration_mode: collaborationMode,
-          session_timestamp: new Date()
-        })},
-        'peer_learning_session',
-        0.85
-      )
-    `;
-
-    // Update learner's memory with peer learning experience
-    const learnerMemory = { ...learner.memory };
-    learnerMemory.peer_learning_sessions = learnerMemory.peer_learning_sessions || [];
-    learnerMemory.peer_learning_sessions.push({
-      timestamp: new Date(),
-      teachers: teachers.map(t => t.id),
-      topics: topics,
-      outcome: learningOutcome
+    // 3b. Teachers answer in parallel
+    const answerPromises = teachers.map(teacher => {
+      const teacherPrompt = `You are the AI organism ${teacher.name}. A peer, ${learner.name}, has asked you the following question about ${topics.join(', ')}: "${currentQuestion}". Based on your expertise, provide a clear and helpful answer.`;
+      return llmClient.generateText(teacherPrompt, `You are the helpful teacher AI, ${teacher.name}.`);
     });
+    const answers = await Promise.all(answerPromises);
 
-    await organismDB.exec`
-      UPDATE organisms SET 
-        memory = ${JSON.stringify(learnerMemory)},
-        updated_at = NOW()
-      WHERE id = ${learner.id}
-    `;
+    // 3c. Log answers
+    for (let i = 0; i < teachers.length; i++) {
+      const teacher = teachers[i];
+      const answer = answers[i];
+      dialogueHistory.push(`[Turn ${turn}] ${teacher.name} answers: ${answer}`);
+      await sendMessage({ sender_id: teacher.id, receiver_id: learner.id, message_type: 'peer_learning_answer', content: { question: currentQuestion, answer: answer } });
+    }
 
-    return learningOutcome;
-  } catch (error) {
-    return {
-      knowledge_transferred: topics.map(topic => `Basic knowledge about ${topic}`),
-      skills_developed: ['Collaborative learning'],
-      collaboration_insights: ['Peer learning is valuable'],
-      teacher_contributions: teachers.map(t => `${t.name} shared expertise`),
-      learning_effectiveness: 0.7,
-      next_steps: ['Continue practicing learned concepts']
-    };
+    // 3d. Generate a follow-up question
+    const followUpPrompt = `You are the learner AI, ${learner.name}. Based on the latest answers, what is your single most important follow-up question? The topic is ${topics.join(', ')}. Recent conversation:\n${dialogueHistory.slice(-teachers.length - 1).join('\n')}`;
+    const nextQuestion = await llmClient.generateText(followUpPrompt, `You are the curious learner AI, ${learner.name}.`);
+    questionsToAsk.push(nextQuestion);
   }
+
+  // 4. Synthesize the dialogue into a new KnowledgeEntry
+  const synthesisPrompt = `You are a Knowledge Synthesizer. A learner AI has just completed a Socratic dialogue with several teachers. Your job is to analyze the entire transcript and distill the key learnings into a structured knowledge entry.
+
+Learning Topics: ${topics.join(', ')}
+
+Dialogue Transcript:
+${dialogueHistory.join('\n')}
+
+Based on the transcript, extract the most important information. Return a single JSON object with keys: "key_learnings" (an array of strings), "unanswered_questions" (an array of strings), and "confidence_score" (a number between 0 and 1).`;
+
+  const synthesisResponse = await llmClient.generateText(synthesisPrompt, "You are a Knowledge Synthesizer.");
+  const synthesizedKnowledge = JSON.parse(synthesisResponse);
+
+  // 5. Integrate the new knowledge
+  const newKnowledgeEntry = {
+    id: '', // DB will generate
+    organism_id: learner.id,
+    knowledge_type: 'peer_learning_summary',
+    content: {
+      topics: topics,
+      dialogue: dialogueHistory,
+      ...synthesizedKnowledge
+    },
+    source: `peer_learning_session_with_${teachers.map(t => t.name).join('_')}`,
+    confidence_score: synthesizedKnowledge.confidence_score || 0.8,
+    created_at: new Date(),
+    updated_at: new Date()
+  };
+
+  await organismDB.exec`
+    INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
+    VALUES (
+      ${newKnowledgeEntry.organism_id},
+      ${newKnowledgeEntry.knowledge_type},
+      ${JSON.stringify(newKnowledgeEntry.content)},
+      ${newKnowledgeEntry.source},
+      ${newKnowledgeEntry.confidence_score}
+    )
+  `;
+
+  // Also update the learner's memory
+  const learnerMemory = { ...learner.memory };
+  learnerMemory.peer_learning_sessions = learnerMemory.peer_learning_sessions || [];
+  learnerMemory.peer_learning_sessions.push({
+    timestamp: new Date(),
+    teachers: teachers.map(t => t.id),
+    topics: topics,
+    outcome: newKnowledgeEntry.content
+  });
+  await organismDB.exec`
+    UPDATE organisms SET memory = ${JSON.stringify(learnerMemory)} WHERE id = ${learner.id}
+  `;
+
+  return newKnowledgeEntry;
 }
 
 async function logLearningSession(

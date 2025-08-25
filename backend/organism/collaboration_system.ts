@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
 import type { Organism, Task } from "./types";
+import { sendMessage } from "./communicate";
 
 interface CollaborationRequest {
   initiator_organism_id: string;
@@ -409,93 +410,81 @@ async function coordinateCollectiveExecution(
   coordinationStrategy: string,
   communicationProtocol: Record<string, any>
 ): Promise<any> {
-  const systemPrompt = `You are a collective task execution coordinator for AI organisms. Design and oversee collaborative task execution that maximizes efficiency and quality.
+  // 1. Generate the initial high-level plan
+  const planPrompt = `You are a master planner for a team of AI organisms. Design a high-level collaboration plan.
 
-Task: ${task.title}
-Description: ${task.description}
-Complexity: ${task.complexity_level}
+Task: ${task.title} - ${task.description}
+Participants: ${participants.map(p => p.name).join(', ')}
+Strategy: ${coordinationStrategy}
 
-Participants:
-${participants.map(p => `- ${p.name} (Gen ${p.generation}): ${p.capabilities.join(', ')}`).join('\n')}
+Define a role and a specific subtask for each participant. Return a JSON object with a key 'task_assignments', where the value is an object mapping organism IDs to their subtask description.`;
 
-Coordination Strategy: ${coordinationStrategy}`;
+  const planResponse = await llmClient.generateText(planPrompt, 'You are a master planner.');
+  const plan = JSON.parse(planResponse);
+  const taskAssignments = plan.task_assignments || {};
 
-  const prompt = `Communication Protocol: ${JSON.stringify(communicationProtocol)}
+  // 2. Set up the collaboration state
+  const collaborationLog: string[] = [`Initial Plan: ${JSON.stringify(taskAssignments)}`];
+  const MAX_TURNS = 5;
 
-Coordinate collective execution of this task using ${coordinationStrategy} strategy.
+  // 3. Run the turn-based execution loop
+  for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    const turnPromises: Promise<string>[] = [];
+    const turnHeader = `\n\n--- Turn ${turn} ---\n`;
+    collaborationLog.push(turnHeader);
 
-Design execution plan that:
-1. Optimally assigns subtasks to organisms
-2. Establishes coordination mechanisms
-3. Manages dependencies and synchronization
-4. Monitors progress and quality
-5. Handles conflicts and bottlenecks
-6. Ensures knowledge sharing and learning
+    // 4. Parallel execution for the current turn
+    for (const organism of participants) {
+      const subtask = taskAssignments[organism.id] || "Contribute to the overall goal.";
+      const prompt = `You are ${organism.name}. Your goal is to solve: "${task.title}".
+Your specific subtask is: "${subtask}".
 
-Return JSON with:
-- execution_plan: Detailed execution strategy
-- task_assignments: Specific assignments for each organism
-- coordination_mechanisms: How organisms coordinate
-- progress_monitoring: How to track progress
-- quality_assurance: Quality control measures
-- conflict_resolution: How to handle issues
-- learning_outcomes: Expected learning benefits`;
+The collaboration so far:
+${collaborationLog.slice(-5).join('\n')}
 
-  const response = await llmClient.generateText(prompt, systemPrompt);
+What is the next single action you take or the next key insight you have? Be concise.`;
 
-  try {
-    const executionResult = JSON.parse(response);
-    
-    // Update task with collective execution plan
-    const updatedProgress = { ...task.progress };
-    updatedProgress.collective_execution = {
-      strategy: coordinationStrategy,
-      participants: participants.map(p => p.id),
-      execution_plan: executionResult,
-      started_at: new Date()
-    };
-
-    await organismDB.exec`
-      UPDATE tasks SET 
-        progress = ${JSON.stringify(updatedProgress)},
-        status = 'in_progress',
-        updated_at = NOW()
-      WHERE id = ${task.id}
-    `;
-
-    // Log execution for each participant
-    for (const participant of participants) {
-      await organismDB.exec`
-        INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
-        VALUES (
-          ${participant.id},
-          'collective_task_execution',
-          ${JSON.stringify({
-            task_id: task.id,
-            task_title: task.title,
-            execution_result: executionResult,
-            role: executionResult.task_assignments[participant.id],
-            timestamp: new Date()
-          })},
-          'collective_execution_system',
-          0.9
-        )
-      `;
+      turnPromises.push(llmClient.generateText(prompt, `You are the AI organism ${organism.name}.`));
     }
 
-    return executionResult;
-  } catch (error) {
-    return {
-      execution_plan: `Collective execution of ${task.title} using ${coordinationStrategy}`,
-      task_assignments: participants.reduce((assignments, p) => {
-        assignments[p.id] = `Contribute to task using ${p.capabilities[0] || 'general'} skills`;
-        return assignments;
-      }, {} as Record<string, string>),
-      coordination_mechanisms: 'Regular synchronization and communication',
-      progress_monitoring: 'Continuous progress tracking',
-      quality_assurance: 'Peer review and validation',
-      conflict_resolution: 'Collaborative problem-solving',
-      learning_outcomes: ['Enhanced collaboration skills', 'Domain knowledge']
-    };
+    const turnResults = await Promise.all(turnPromises);
+
+    // 5. Synchronize and log results
+    for (let i = 0; i < participants.length; i++) {
+      const organism = participants[i];
+      const result = turnResults[i];
+      const message = `[Turn ${turn}] ${organism.name}: ${result}`;
+      collaborationLog.push(message);
+
+      // Log to database for other organisms to see in the future
+      await sendMessage({
+        sender_id: organism.id,
+        is_broadcast: true,
+        message_type: 'collaboration_log',
+        content: {
+          task_id: task.id,
+          turn: turn,
+          message: result
+        }
+      });
+    }
   }
+
+  // 6. Final Synthesis
+  const synthesisPrompt = `You are a Lead Analyst AI. A team of AI organisms has collaborated on a task. Your job is to synthesize their entire conversation and produce a final, definitive answer.
+
+Original Task: ${task.title} - ${task.description}
+
+Collaboration Log:
+${collaborationLog.join('\n')}
+
+Based on the log, provide a comprehensive final answer to the original task.`;
+
+  const finalAnswer = await llmClient.generateText(synthesisPrompt, 'You are a Lead Analyst AI.');
+
+  return {
+    execution_plan: plan,
+    final_log: collaborationLog,
+    final_answer: finalAnswer
+  };
 }

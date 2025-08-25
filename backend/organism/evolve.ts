@@ -2,61 +2,66 @@ import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
 import type { Organism, EvolutionRequest } from "./types";
+export type { EvolutionRequest };
 
 // Evolves an organism based on performance metrics and learning.
 export const evolve = api<EvolutionRequest, Organism>(
   { expose: true, method: "POST", path: "/organisms/:organism_id/evolve" },
   async (req) => {
-    const organism = await organismDB.queryRow<Organism>`
-      SELECT * FROM organisms WHERE id = ${req.organism_id} AND status = 'active'
-    `;
-
-    if (!organism) {
-      throw new Error("Organism not found or not active");
-    }
-
-    // Update organism status to evolving
-    await organismDB.exec`
-      UPDATE organisms SET status = 'evolving', updated_at = NOW()
-      WHERE id = ${req.organism_id}
-    `;
-
-    // Create evolved copy
-    const { capabilities: evolvedCapabilities, reasoning } = await generateEvolvedCapabilities(organism, req.target_improvements);
-    const evolvedMemory = await enhanceMemory(organism.memory, req.evolution_triggers, req.target_improvements, reasoning);
-
-    const evolvedOrganism = await organismDB.queryRow<Organism>`
-      INSERT INTO organisms (
-        name, parent_id, generation, capabilities, memory, 
-        performance_metrics, code_analysis, learned_technologies, status
-      )
-      VALUES (
-        ${organism.name + '_evolved_' + (organism.generation + 1)},
-        ${organism.id},
-        ${organism.generation + 1},
-        ${JSON.stringify(evolvedCapabilities)},
-        ${JSON.stringify(evolvedMemory)},
-        ${JSON.stringify(organism.performance_metrics)},
-        ${JSON.stringify(organism.code_analysis)},
-        ${JSON.stringify(organism.learned_technologies)},
-        'active'
-      )
-      RETURNING *
-    `;
-
-    if (!evolvedOrganism) {
-      throw new Error("Failed to create evolved organism");
-    }
-
-    // Mark original as deprecated if evolution was successful
-    await organismDB.exec`
-      UPDATE organisms SET status = 'deprecated', updated_at = NOW()
-      WHERE id = ${req.organism_id}
-    `;
-
-    return evolvedOrganism;
+    return await _evolveLogic(req);
   }
 );
+
+export async function _evolveLogic(req: EvolutionRequest): Promise<Organism> {
+  const organism = await organismDB.queryRow<Organism>`
+    SELECT * FROM organisms WHERE id = ${req.organism_id} AND status = 'active'
+  `;
+
+  if (!organism) {
+    throw new Error("Organism not found or not active");
+  }
+
+  // Update organism status to evolving
+  await organismDB.exec`
+    UPDATE organisms SET status = 'evolving', updated_at = NOW()
+    WHERE id = ${req.organism_id}
+  `;
+
+  // Create evolved copy
+  const { capabilities: evolvedCapabilities, reasoning } = await generateEvolvedCapabilities(organism, req.target_improvements);
+  const evolvedMemory = await enhanceMemory(organism.memory, req.evolution_triggers, req.target_improvements, reasoning);
+
+  const evolvedOrganism = await organismDB.queryRow<Organism>`
+    INSERT INTO organisms (
+      name, parent_id, generation, capabilities, memory,
+      performance_metrics, code_analysis, learned_technologies, status
+    )
+    VALUES (
+      ${organism.name + '_evolved_' + (organism.generation + 1)},
+      ${organism.id},
+      ${organism.generation + 1},
+      ${JSON.stringify(evolvedCapabilities)},
+      ${JSON.stringify(evolvedMemory)},
+      ${JSON.stringify(organism.performance_metrics)},
+      ${JSON.stringify(organism.code_analysis)},
+      ${JSON.stringify(organism.learned_technologies)},
+      'active'
+    )
+    RETURNING *
+  `;
+
+  if (!evolvedOrganism) {
+    throw new Error("Failed to create evolved organism");
+  }
+
+  // Mark original as deprecated if evolution was successful
+  await organismDB.exec`
+    UPDATE organisms SET status = 'deprecated', updated_at = NOW()
+    WHERE id = ${req.organism_id}
+  `;
+
+  return evolvedOrganism;
+}
 
 async function generateEvolvedCapabilities(organism: Organism, improvements: string[]): Promise<{ capabilities: string[], reasoning: string }> {
   const systemPrompt = `You are an AI Evolution Strategist. Your task is to analyze an AI organism's profile and propose a set of new, specific, and creative capabilities that will enhance its performance and address its weaknesses.

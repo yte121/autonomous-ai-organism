@@ -3,58 +3,63 @@ import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
 import { _executeComputerOperationLogic } from "./autonomous_controller";
 import type { Organism, LearningRequest, KnowledgeEntry } from "./types";
+export type { LearningRequest };
 
 // Enables organism to learn from codebases, internet, and technologies.
 export const learn = api<LearningRequest, { knowledge_entries: KnowledgeEntry[] }>(
   { expose: true, method: "POST", path: "/organisms/:organism_id/learn" },
   async (req) => {
-    const organism = await organismDB.queryRow<Organism>`
-      SELECT * FROM organisms WHERE id = ${req.organism_id} AND status = 'active'
-    `;
-
-    if (!organism) {
-      throw new Error("Organism not found or not active");
-    }
-
-    const knowledgeEntries: KnowledgeEntry[] = [];
-
-    switch (req.source_type) {
-      case 'codebase':
-        const codebaseKnowledge = await analyzeCodebase(req.source_url || '', req.learning_objectives);
-        knowledgeEntries.push(...codebaseKnowledge);
-        break;
-      
-      case 'internet':
-        const internetKnowledge = await researchInternet(req.learning_objectives);
-        knowledgeEntries.push(...internetKnowledge);
-        break;
-      
-      case 'technology_docs':
-        const techKnowledge = await analyzeTechnologyDocs(req.source_url || '', req.learning_objectives);
-        knowledgeEntries.push(...techKnowledge);
-        break;
-    }
-
-    // Store knowledge entries
-    for (const entry of knowledgeEntries) {
-      await organismDB.exec`
-        INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
-        VALUES (
-          ${req.organism_id},
-          ${entry.knowledge_type},
-          ${JSON.stringify(entry.content)},
-          ${entry.source},
-          ${entry.confidence_score}
-        )
-      `;
-    }
-
-    // Update organism's learned technologies and capabilities
-    await updateOrganismLearning(req.organism_id, knowledgeEntries);
-
-    return { knowledge_entries: knowledgeEntries };
+    return await _learnLogic(req);
   }
 );
+
+export async function _learnLogic(req: LearningRequest): Promise<{ knowledge_entries: KnowledgeEntry[] }> {
+  const organism = await organismDB.queryRow<Organism>`
+    SELECT * FROM organisms WHERE id = ${req.organism_id} AND status = 'active'
+  `;
+
+  if (!organism) {
+    throw new Error("Organism not found or not active");
+  }
+
+  const knowledgeEntries: KnowledgeEntry[] = [];
+
+  switch (req.source_type) {
+    case 'codebase':
+      const codebaseKnowledge = await analyzeCodebase(req.source_url || '', req.learning_objectives);
+      knowledgeEntries.push(...codebaseKnowledge);
+      break;
+
+    case 'internet':
+      const internetKnowledge = await researchInternet(req.learning_objectives);
+      knowledgeEntries.push(...internetKnowledge);
+      break;
+
+    case 'technology_docs':
+      const techKnowledge = await analyzeTechnologyDocs(req.source_url || '', req.learning_objectives);
+      knowledgeEntries.push(...techKnowledge);
+      break;
+  }
+
+  // Store knowledge entries
+  for (const entry of knowledgeEntries) {
+    await organismDB.exec`
+      INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
+      VALUES (
+        ${req.organism_id},
+        ${entry.knowledge_type},
+        ${JSON.stringify(entry.content)},
+        ${entry.source},
+        ${entry.confidence_score}
+      )
+    `;
+  }
+
+  // Update organism's learned technologies and capabilities
+  await updateOrganismLearning(req.organism_id, knowledgeEntries);
+
+  return { knowledge_entries: knowledgeEntries };
+}
 
 async function analyzeCodebase(sourceUrl: string, objectives: string[]): Promise<KnowledgeEntry[]> {
   if (!sourceUrl || !sourceUrl.startsWith('https://')) {
