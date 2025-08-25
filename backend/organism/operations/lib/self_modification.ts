@@ -3,6 +3,7 @@ import * as path from 'path';
 import { organismDB } from '../../db';
 import { llmClient } from '../../../llm/client';
 import { config } from '../../../config';
+import { logger } from '../../../logger';
 import type { Organism } from '../../types';
 import { executeComputerOperationLogic } from '../computer_operations';
 
@@ -34,7 +35,7 @@ async function _testUpgradedCode(filePath: string): Promise<{ success: boolean; 
     } catch (error: any) {
       // The 'exec' promise rejects if the command returns a non-zero exit code, which tsc does on error.
       const errorMessage = error.stderr || error.stdout || error.message;
-      console.error('Code validation failed:', errorMessage);
+      logger.error({ err: error, filePath, functionName: '_testUpgradedCode' }, 'Code validation failed');
       return { success: false, output: errorMessage };
     }
 }

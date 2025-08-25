@@ -1,5 +1,6 @@
 import { secret } from "encore.dev/config";
 import { config } from '../config';
+import { logger } from '../logger';
 
 const openRouterKeys = secret("OpenRouterAPIKeys");
 
@@ -40,7 +41,7 @@ class OpenRouterClient {
     this.apiKeys = keysString.split(',').map(key => key.trim()).filter(key => key.length > 0);
     
     if (this.apiKeys.length === 0) {
-      console.warn('No OpenRouter API keys configured');
+      logger.warn('No OpenRouter API keys configured');
     }
   }
 
@@ -192,7 +193,7 @@ class OpenRouterClient {
 
       return content;
     } catch (error) {
-      console.error('LLM generation failed:', error);
+      logger.error({ err: error, functionName: 'generateText' }, 'LLM generation failed');
       // Return a fallback response instead of throwing
       return `Unable to generate response due to LLM service error. Please try again later.`;
     }
@@ -213,7 +214,7 @@ class OpenRouterClient {
       const response = await this.generateText(prompt, systemPrompt);
       return JSON.parse(response);
     } catch (error) {
-      console.error('Code analysis failed:', error);
+      logger.error({ err: error, analysisType, functionName: 'analyzeCode' }, 'Code analysis failed');
       return {
         analysis: `Code analysis for ${analysisType}`,
         suggestions: ['Review code structure', 'Consider optimization opportunities'],
@@ -240,7 +241,7 @@ Return only the optimized code without explanations.
     try {
       return await this.generateText(prompt, systemPrompt);
     } catch (error) {
-      console.error('Code optimization failed:', error);
+      logger.error({ err: error, functionName: 'generateOptimization' }, 'Code optimization failed');
       return currentCode; // Return original code if optimization fails
     }
   }
@@ -268,7 +269,7 @@ Return the response as a structured JSON object with keys: key_insights, impleme
       const response = await this.generateText(prompt, systemPrompt);
       return JSON.parse(response);
     } catch (error) {
-      console.error('Technology research failed:', error);
+      logger.error({ err: error, technology, functionName: 'researchTechnology' }, 'Technology research failed');
       return {
         key_insights: [`Research insights for ${technology}`],
         implementation_strategies: ['Standard implementation approach'],
@@ -309,7 +310,7 @@ Return as structured JSON with keys: modifications, expected_improvements, risk_
       const response = await this.generateText(prompt, systemPrompt);
       return JSON.parse(response);
     } catch (error) {
-      console.error('Evolution strategy generation failed:', error);
+      logger.error({ err: error, functionName: 'generateEvolutionStrategy' }, 'Evolution strategy generation failed');
       return { 
         modifications: targetImprovements.map(imp => `Enhance ${imp}`),
         expected_improvements: { overall: 0.1 },
@@ -348,7 +349,7 @@ Return as structured JSON with keys: subtasks, assignments, timeline, dependenci
       const response = await this.generateText(prompt, systemPrompt);
       return JSON.parse(response);
     } catch (error) {
-      console.error('Task decomposition failed:', error);
+      logger.error({ err: error, functionName: 'generateTaskDecomposition' }, 'Task decomposition failed');
       return {
         subtasks: [{ name: taskDescription, complexity: complexity }],
         assignments: availableOrganisms.slice(0, 1).map(o => ({ organism_id: o.id, task: taskDescription })),
@@ -385,7 +386,7 @@ Return as structured JSON with keys: overview, trends, specifications, best_prac
       const response = await this.generateText(prompt, systemPrompt);
       return JSON.parse(response);
     } catch (error) {
-      console.error('Internet research failed:', error);
+      logger.error({ err: error, topic, functionName: 'generateInternetResearch' }, 'Internet research failed');
       return {
         overview: `Research overview for ${topic}`,
         trends: ['Current industry trends'],

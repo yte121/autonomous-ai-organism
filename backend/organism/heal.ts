@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import type { Organism } from "./types";
 
 interface HealRequest {
@@ -133,7 +134,7 @@ Provide your diagnosis and proposed solution in the required JSON format.`;
 
     return healingPlan;
   } catch (error) {
-    console.error("Failed to generate healing plan from LLM:", error);
+    logger.error({ err: error, organismId: organism.id, errorContext, functionName: 'applyHealing' }, "Failed to generate healing plan from LLM");
     // Fallback to a simple, generic healing response
     return {
       diagnosis: "LLM-based diagnosis failed. The root cause could not be determined.",

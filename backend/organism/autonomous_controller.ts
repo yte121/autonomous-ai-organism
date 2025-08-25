@@ -5,18 +5,8 @@ import * as path from "path";
 import * as os from "os";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import type { Organism, Task, CreateTaskRequest } from "./types";
-
-// A hardcoded allowlist for safe commands that can be executed by the 'process' operation.
-const ALLOWED_PROCESS_COMMANDS = new Set([
-  'git',
-  'ls',
-  'npx',
-  'cat',
-  'echo',
-  'npm',
-  'bun',
-]);
 
 interface AutonomousExecutionRequest {
   organism_id: string;
@@ -449,7 +439,7 @@ Is this operation safe? Provide your response in the required JSON format.`;
     // If the response is not in the expected format, default to unsafe.
     return { safe: false, reason: 'Safety assessment response from LLM was malformed.' };
   } catch (error) {
-    console.error('Error during safety validation LLM call:', error);
+    logger.error({ err: error, operationType, operationDetails, functionName: 'validateOperationSafety' }, 'Error during safety validation LLM call');
     // If the LLM call fails for any reason, default to unsafe.
     return { safe: false, reason: 'Failed to get a safety assessment from the LLM.' };
   }
@@ -482,7 +472,7 @@ async function _testUpgradedCode(filePath: string): Promise<{ success: boolean; 
   } catch (error: any) {
     // The 'exec' promise rejects if the command returns a non-zero exit code, which tsc does on error.
     const errorMessage = error.stderr || error.stdout || error.message;
-    console.error('Code validation failed:', errorMessage);
+      logger.error({ err: error, filePath, functionName: '_testUpgradedCode' }, 'Code validation failed');
     return { success: false, output: errorMessage };
   }
 }

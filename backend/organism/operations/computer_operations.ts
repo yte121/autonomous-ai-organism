@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { config } from '../../config';
+import { logger } from '../../logger';
 
 // Import the new operation handlers
 import { handleFileSystemOperation } from './lib/file_system';
@@ -51,7 +52,7 @@ export async function executeComputerOperationLogic(
                 throw new Error(`Unsupported operation type: ${operationType}`);
         }
     } catch (error: any) {
-        console.error(`Error during computer operation '${operationType}':`, error);
+        logger.error({ err: error, operationType, operationDetails, organism_id }, `Error during computer operation`);
         throw new Error(`Operation failed: ${error.message}`);
     }
 }
