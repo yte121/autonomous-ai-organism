@@ -121,6 +121,7 @@ export const operateComputer = api<ComputerOperationRequest, { operation_result:
 
     // Execute computer operation
     const operationResult = await _executeComputerOperationLogic(
+      req.organism_id,
       req.operation_type,
       req.operation_details
     );
@@ -462,7 +463,7 @@ async function _testUpgradedCode(filePath: string): Promise<{ success: boolean; 
   try {
     // We use --noEmit to only perform type-checking without generating JS files.
     // --strict enables all strict type-checking options.
-    const result = await _executeComputerOperationLogic('process', {
+    const result = await _executeComputerOperationLogic('self_test', 'process', {
       command: `npx tsc --noEmit --strict ${filePath}`
     });
     // If tsc completes without error, stdout and stderr will be empty.
@@ -476,6 +477,7 @@ async function _testUpgradedCode(filePath: string): Promise<{ success: boolean; 
 }
 
 export async function _executeComputerOperationLogic(
+  organism_id: string,
   operationType: string,
   operationDetails: Record<string, any>
 ): Promise<any> {
@@ -695,6 +697,41 @@ export async function _executeComputerOperationLogic(
           await fs.rm(tempFilePath); // Clean up temp file
           throw new Error(`Prompt modification failed: New code did not pass validation. Error: ${testResult.output}`);
         }
+      }
+
+      case 'create_capability': {
+        const { name, description } = operationDetails;
+        if (!name || !description) {
+          throw new Error('create_capability requires a name and a description.');
+        }
+
+        // Use LLM to generate the code for the new capability
+        const codeGenPrompt = `You are an expert TypeScript engineer. Write a single, standalone, asynchronous TypeScript function with the name "${name}".
+The function should do the following: "${description}".
+It should take any necessary parameters as a single object argument and return a Promise resolving to any relevant output.
+Return ONLY the raw TypeScript code for the function. Do not include any explanations, markdown formatting, or import statements.`;
+
+        const codeBody = await llmClient.generateText(codeGenPrompt, 'You are a code generation specialist.');
+
+        // Save the new capability to the database
+        await organismDB.exec`
+          INSERT INTO custom_capabilities (organism_id, name, description, code_body)
+          VALUES (${organism_id}, ${name}, ${description}, ${codeBody})
+        `;
+
+        // Add the new capability to the organism's main capability list
+        const organism = await organismDB.queryRow<Organism>`SELECT capabilities FROM organisms WHERE id = ${organism_id}`;
+        if (organism) {
+          const updatedCapabilities = new Set(organism.capabilities);
+          updatedCapabilities.add(name);
+          await organismDB.exec`
+            UPDATE organisms SET capabilities = ${JSON.stringify(Array.from(updatedCapabilities))} WHERE id = ${organism_id}
+          `;
+        }
+
+        return {
+          result: `Successfully created and learned new capability: ${name}`
+        };
       }
 
       default:
