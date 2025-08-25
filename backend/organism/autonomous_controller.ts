@@ -119,8 +119,7 @@ export const operateComputer = api<ComputerOperationRequest, { operation_result:
     }
 
     // Execute computer operation
-    const operationResult = await executeComputerOperation(
-      organism,
+    const operationResult = await _executeComputerOperationLogic(
       req.operation_type,
       req.operation_details
     );
@@ -441,8 +440,7 @@ Is this operation safe? Provide your response in the required JSON format.`;
   }
 }
 
-async function executeComputerOperation(
-  organism: Organism,
+export async function _executeComputerOperationLogic(
   operationType: string,
   operationDetails: Record<string, any>
 ): Promise<any> {
