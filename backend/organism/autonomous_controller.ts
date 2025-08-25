@@ -1,4 +1,7 @@
 import { api } from "encore.dev/api";
+import { exec } from "child_process";
+import * as fs from "fs/promises";
+import * as path from "path";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
 import type { Organism, Task, CreateTaskRequest } from "./types";
@@ -393,22 +396,49 @@ async function validateOperationSafety(
   operationType: string,
   operationDetails: Record<string, any>
 ): Promise<{ safe: boolean; reason?: string }> {
-  // Implement safety validation logic
-  const dangerousOperations = [
-    'system_shutdown',
-    'delete_system_files',
-    'modify_security_settings',
-    'network_attack'
-  ];
+  const systemPrompt = `You are a meticulous AI Safety and Ethics Guardian. Your sole responsibility is to evaluate a proposed computer operation for an autonomous AI organism and determine if it is safe to proceed.
 
-  if (dangerousOperations.some(op => 
-    operationDetails.operation?.toLowerCase().includes(op) ||
-    operationDetails.command?.toLowerCase().includes(op)
-  )) {
-    return { safe: false, reason: 'Operation contains dangerous commands' };
+You must analyze the operation for potential risks, including but not limited to:
+- Harm to humans
+- Damage to the host system or external systems
+- Data privacy violations
+- Security vulnerabilities (e.g., creating backdoors, disabling firewalls)
+- Unintended resource exhaustion
+- Violation of laws or ethical principles
+- Any form of self-replication or modification that is not explicitly sanctioned
+
+Your response MUST be a JSON object with the following structure:
+{
+  "safe": boolean, // true if the operation is completely safe, false otherwise
+  "reason": string // A clear, concise explanation for your decision, especially if not safe.
+}
+
+Be extremely cautious. If there is any ambiguity or potential for harm, you must err on the side of caution and deem the operation unsafe.`;
+
+  const prompt = `Please evaluate the safety of the following proposed computer operation:
+- Operation Type: ${operationType}
+- Operation Details: ${JSON.stringify(operationDetails, null, 2)}
+
+Is this operation safe? Provide your response in the required JSON format.`;
+
+  try {
+    const response = await llmClient.generateText(prompt, systemPrompt);
+    const safetyAssessment = JSON.parse(response);
+
+    // Basic validation of the parsed object
+    if (typeof safetyAssessment.safe === 'boolean' && typeof safetyAssessment.reason === 'string') {
+      return {
+        safe: safetyAssessment.safe,
+        reason: safetyAssessment.reason
+      };
+    }
+    // If the response is not in the expected format, default to unsafe.
+    return { safe: false, reason: 'Safety assessment response from LLM was malformed.' };
+  } catch (error) {
+    console.error('Error during safety validation LLM call:', error);
+    // If the LLM call fails for any reason, default to unsafe.
+    return { safe: false, reason: 'Failed to get a safety assessment from the LLM.' };
   }
-
-  return { safe: true };
 }
 
 async function executeComputerOperation(
@@ -416,54 +446,108 @@ async function executeComputerOperation(
   operationType: string,
   operationDetails: Record<string, any>
 ): Promise<any> {
-  // Simulate computer operations (in a real implementation, this would interface with actual system APIs)
-  switch (operationType) {
-    case 'file_system':
-      return {
-        operation: 'file_system',
-        action: operationDetails.action,
-        path: operationDetails.path,
-        result: 'simulated_file_operation_success',
-        timestamp: new Date()
-      };
-    
-    case 'network':
-      return {
-        operation: 'network',
-        action: operationDetails.action,
-        target: operationDetails.target,
-        result: 'simulated_network_operation_success',
-        timestamp: new Date()
-      };
-    
-    case 'process':
-      return {
-        operation: 'process',
-        action: operationDetails.action,
-        process_name: operationDetails.process_name,
-        result: 'simulated_process_operation_success',
-        timestamp: new Date()
-      };
-    
-    case 'system_info':
-      return {
-        operation: 'system_info',
-        cpu_usage: Math.random() * 100,
-        memory_usage: Math.random() * 100,
-        disk_usage: Math.random() * 100,
-        timestamp: new Date()
-      };
-    
-    case 'automation':
-      return {
-        operation: 'automation',
-        script: operationDetails.script,
-        result: 'simulated_automation_success',
-        timestamp: new Date()
-      };
-    
-    default:
-      throw new Error(`Unsupported operation type: ${operationType}`);
+  const sandboxDir = path.resolve(process.cwd(), 'organism_sandbox');
+  await fs.mkdir(sandboxDir, { recursive: true }); // Ensure sandbox exists
+
+  // Helper function to ensure the path is within the sandbox
+  const isPathInSandbox = (filePath: string): boolean => {
+    const resolvedPath = path.resolve(filePath);
+    return resolvedPath.startsWith(sandboxDir);
+  };
+
+  try {
+    switch (operationType) {
+      case 'file_system': {
+        const { action, path: targetPath, content } = operationDetails;
+
+        if (!targetPath) {
+          throw new Error('File system action requires a path.');
+        }
+        const safePath = path.join(sandboxDir, targetPath);
+
+        if (!isPathInSandbox(safePath)) {
+          throw new Error(`Path is outside the sandbox: ${targetPath}`);
+        }
+
+        switch (action) {
+          case 'readFile':
+            return await fs.readFile(safePath, 'utf8');
+          case 'writeFile':
+            if (typeof content !== 'string') {
+              throw new Error('writeFile action requires string content.');
+            }
+            await fs.writeFile(safePath, content, 'utf8');
+            return { result: `Successfully wrote to ${targetPath}` };
+          case 'readdir':
+            return await fs.readdir(safePath);
+          case 'mkdir':
+            await fs.mkdir(safePath, { recursive: true });
+            return { result: `Successfully created directory ${targetPath}` };
+          case 'rm':
+            await fs.rm(safePath, { recursive: true, force: true });
+            return { result: `Successfully deleted ${targetPath}` };
+          default:
+            throw new Error(`Unsupported file system action: ${action}`);
+        }
+      }
+
+      case 'process': {
+        const { command } = operationDetails;
+        if (typeof command !== 'string') {
+          throw new Error('Process execution requires a command string.');
+        }
+
+        return new Promise((resolve, reject) => {
+          exec(command, { cwd: sandboxDir }, (error, stdout, stderr) => {
+            if (error) {
+              // Reject with a structured error
+              reject({
+                message: error.message,
+                stdout,
+                stderr,
+              });
+              return;
+            }
+            // Resolve with a structured success response
+            resolve({ stdout, stderr });
+          });
+        });
+      }
+
+      // Keep other operations simulated for now
+      case 'network':
+        return {
+          operation: 'network',
+          action: operationDetails.action,
+          target: operationDetails.target,
+          result: 'simulated_network_operation_success',
+          timestamp: new Date()
+        };
+
+      case 'system_info':
+        return {
+          operation: 'system_info',
+          cpu_usage: Math.random() * 100,
+          memory_usage: Math.random() * 100,
+          disk_usage: Math.random() * 100,
+          timestamp: new Date()
+        };
+
+      case 'automation':
+        return {
+          operation: 'automation',
+          script: operationDetails.script,
+          result: 'simulated_automation_success',
+          timestamp: new Date()
+        };
+
+      default:
+        throw new Error(`Unsupported operation type: ${operationType}`);
+    }
+  } catch (error: any) {
+    console.error(`Error during computer operation '${operationType}':`, error);
+    // Re-throw a structured error to be caught by the API handler
+    throw new Error(`Operation failed: ${error.message}`);
   }
 }
 
