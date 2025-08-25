@@ -399,6 +399,67 @@ Return as structured JSON with keys: overview, trends, specifications, best_prac
       };
     }
   }
+  async generateEmbedding(text: string): Promise<number[]> {
+    if (this.apiKeys.length === 0) {
+      throw new Error('No OpenRouter API keys configured');
+    }
+
+    // Use a recommended free model for embeddings
+    const model = 'sentence-transformers/all-minilm-l6-v2';
+    const requestBody = {
+      model,
+      input: text,
+    };
+
+    let lastError: Error | null = null;
+
+    for (let keyAttempt = 0; keyAttempt < this.apiKeys.length; keyAttempt++) {
+      const currentKey = this.apiKeys[this.currentKeyIndex];
+      if (this.isRateLimited(currentKey)) {
+        this.rotateApiKey();
+        continue;
+      }
+
+      try {
+        const response = await fetch(`${this.baseUrl}/embeddings`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${currentKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://leap.dev',
+            'X-Title': 'Autonomous AI Organism'
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          const error = new Error(`OpenRouter Embeddings API error: ${response.status} ${response.statusText} - ${errorText}`);
+          (error as any).status = response.status;
+          throw error;
+        }
+
+        const data = await response.json();
+
+        if (!data.data || !Array.isArray(data.data) || data.data.length === 0 || !data.data[0].embedding) {
+          throw new Error('Invalid response format from OpenRouter Embeddings API');
+        }
+
+        this.updateRateLimit(currentKey, false);
+        return data.data[0].embedding;
+
+      } catch (error: any) {
+        lastError = error;
+        if (error.status === 429) {
+          this.updateRateLimit(currentKey, true);
+          break; // Try next key
+        }
+        break; // Try next key on other errors too
+      }
+    }
+
+    throw lastError || new Error('All API keys exhausted for embeddings');
+  }
 }
 
 export const llmClient = new OpenRouterClient();

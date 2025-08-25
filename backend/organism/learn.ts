@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
 import { _executeComputerOperationLogic } from "./autonomous_controller";
+import { _indexKnowledgeLogic } from "./rag_system";
 import type { Organism, LearningRequest, KnowledgeEntry } from "./types";
 export type { LearningRequest };
 
@@ -41,18 +42,15 @@ export async function _learnLogic(req: LearningRequest): Promise<{ knowledge_ent
       break;
   }
 
-  // Store knowledge entries
+  // Index knowledge entries using the RAG system
   for (const entry of knowledgeEntries) {
-    await organismDB.exec`
-      INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
-      VALUES (
-        ${req.organism_id},
-        ${entry.knowledge_type},
-        ${JSON.stringify(entry.content)},
-        ${entry.source},
-        ${entry.confidence_score}
-      )
-    `;
+    await _indexKnowledgeLogic({
+      organism_id: req.organism_id,
+      content: typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content),
+      content_type: entry.knowledge_type,
+      source: entry.source,
+      confidence_score: entry.confidence_score,
+    });
   }
 
   // Update organism's learned technologies and capabilities

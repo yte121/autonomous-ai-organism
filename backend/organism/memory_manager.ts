@@ -545,14 +545,31 @@ async function performMemoryAnalysis(
   analysisType: string,
   timeRange?: { start: Date; end: Date }
 ): Promise<any> {
-  const systemPrompt = `You are a memory analysis specialist for AI organisms. Analyze memory patterns and provide actionable insights.
+  // 1. Perform algorithmic analysis to extract concrete metrics
+  const memoryMetrics = {
+    totalKeys: Object.keys(organism.memory).length,
+    totalSizeMB: (JSON.stringify(organism.memory).length / (1024 * 1024)).toFixed(4),
+    keyDistribution: Object.entries(organism.memory).reduce((acc, [key, value]) => {
+      acc[key] = (JSON.stringify(value).length / 1024).toFixed(2) + ' KB';
+      return acc;
+    }, {}),
+    arrayLengths: Object.entries(organism.memory)
+      .filter(([_, value]) => Array.isArray(value))
+      .reduce((acc, [key, value]) => {
+        acc[key] = value.length;
+        return acc;
+      }, {}),
+  };
+
+  // 2. Use LLM to generate insights based on the metrics, not the raw data
+  const systemPrompt = `You are a memory analysis specialist for AI organisms. Analyze the provided memory metrics and generate actionable insights for the specified analysis type.
 
 Analysis Type: ${analysisType}
 Organism Generation: ${organism.generation}
 Current Capabilities: ${organism.capabilities.join(', ')}`;
 
-  let prompt = `Analyze the following organism memory structure:
-${JSON.stringify(organism.memory, null, 2)}
+  const prompt = `Analyze the following organism memory metrics:
+${JSON.stringify(memoryMetrics, null, 2)}
 
 Performance Metrics:
 ${JSON.stringify(organism.performance_metrics, null, 2)}
@@ -560,27 +577,25 @@ ${JSON.stringify(organism.performance_metrics, null, 2)}
 Provide analysis for: ${analysisType}
 
 Return a JSON object with:
-1. analysis_summary: Key findings
-2. insights: List of actionable insights
-3. recommendations: Specific recommendations
-4. metrics: Relevant metrics and scores
-5. trends: Identified patterns or trends`;
-
-  if (timeRange) {
-    prompt += `\n\nTime Range: ${timeRange.start.toISOString()} to ${timeRange.end.toISOString()}`;
-  }
+1. analysis_summary: Key findings based on the metrics.
+2. insights: A list of actionable insights.
+3. recommendations: Specific, actionable recommendations for optimization.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
 
   try {
-    return JSON.parse(response);
-  } catch (error) {
+    const analysis = JSON.parse(response);
     return {
-      analysis_summary: response,
-      insights: [`Analysis completed for ${analysisType}`],
-      recommendations: ['Review memory structure for optimization opportunities'],
-      metrics: { analysis_confidence: 0.7 },
-      trends: ['Unable to parse detailed trends due to format error']
+      metrics: memoryMetrics,
+      ...analysis,
+    };
+  } catch (error) {
+    console.error("Failed to parse memory analysis from LLM:", error);
+    return {
+      metrics: memoryMetrics,
+      analysis_summary: "Failed to generate LLM-based analysis.",
+      insights: ["The LLM response was not in the expected JSON format."],
+      recommendations: ["Consider running a memory optimization process."],
     };
   }
 }
@@ -590,80 +605,88 @@ async function optimizeMemoryForPerformance(
   optimizationGoals: string[],
   constraints?: Record<string, any>
 ): Promise<any> {
-  const systemPrompt = `You are a memory optimization specialist. Optimize organism memory structure for better performance while maintaining critical information.
+  const systemPrompt = `You are a memory optimization specialist. Generate a series of actions to optimize the given memory structure for better performance.
 
 Optimization Goals: ${optimizationGoals.join(', ')}
-Current Performance: ${JSON.stringify(organism.performance_metrics)}
-Constraints: ${JSON.stringify(constraints || {})}`;
+Constraints: ${JSON.stringify(constraints || {})}
+
+Return a JSON object with a single key "actions". The value should be an array of action objects.
+Valid action types are: 'summarize', 'archive', 'delete_key', 'rename_key'.
+- summarize: { "type": "summarize", "key": "path.to.key" } -> Summarizes the content of the key.
+- archive: { "type": "archive", "source_key": "path.to.source", "target_key": "path.to.target" } -> Moves content.
+- delete_key: { "type": "delete_key", "key": "path.to.key" } -> Deletes a key.
+- rename_key: { "type": "rename_key", "old_key": "path.to.old", "new_key": "path.to.new" } -> Renames a key.`;
 
   const prompt = `Current Memory Structure:
 ${JSON.stringify(organism.memory, null, 2)}
 
-Optimize this memory structure to achieve the following goals:
-${optimizationGoals.map(goal => `- ${goal}`).join('\n')}
-
-Return a JSON object with:
-1. optimized_memory: The optimized memory structure
-2. optimization_summary: Summary of changes made
-3. performance_improvements: Expected performance gains
-4. preserved_critical_data: List of critical data preserved
-5. optimization_metrics: Metrics about the optimization
-
-Ensure all critical learnings and capabilities are preserved while improving access patterns and reducing memory overhead.`;
+Generate a plan to optimize this memory structure based on the goals.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
-
+  let optimizationPlan;
   try {
-    const optimizationResult = JSON.parse(response);
-    return {
-      optimizedMemory: optimizationResult.optimized_memory || organism.memory,
-      summary: optimizationResult.optimization_summary || 'Memory structure optimized',
-      improvements: optimizationResult.performance_improvements || [],
-      preservedData: optimizationResult.preserved_critical_data || [],
-      metrics: optimizationResult.optimization_metrics || {}
-    };
+    optimizationPlan = JSON.parse(response);
+    if (!optimizationPlan.actions || !Array.isArray(optimizationPlan.actions)) {
+      throw new Error("Invalid plan format: 'actions' array not found.");
+    }
   } catch (error) {
-    // Fallback optimization
-    const optimizedMemory = await fallbackMemoryOptimization(organism.memory, optimizationGoals);
+    console.error("Failed to parse memory optimization plan:", error);
     return {
-      optimizedMemory,
-      summary: 'Fallback optimization applied',
-      improvements: ['Improved memory structure organization'],
-      preservedData: ['All critical data preserved'],
-      metrics: { optimization_confidence: 0.6 }
+      optimizedMemory: organism.memory,
+      summary: 'Failed to generate a valid optimization plan.',
+      actions_executed: []
     };
   }
-}
 
-async function fallbackMemoryOptimization(memory: any, goals: string[]): Promise<any> {
-  const optimized = { ...memory };
+  const optimizedMemory = JSON.parse(JSON.stringify(organism.memory)); // Deep copy
+  const actionsExecuted = [];
 
-  // Organize memory into structured categories
-  if (!optimized.core_memories) {
-    optimized.core_memories = {};
-  }
-  if (!optimized.working_memory) {
-    optimized.working_memory = {};
-  }
-  if (!optimized.long_term_memory) {
-    optimized.long_term_memory = {};
-  }
+  for (const action of optimizationPlan.actions) {
+    try {
+      switch (action.type) {
+        case 'summarize':
+          if (optimizedMemory[action.key]) {
+            const contentToSummarize = JSON.stringify(optimizedMemory[action.key]);
+            const summaryPrompt = `Summarize the following data in a concise paragraph:\n\n${contentToSummarize}`;
+            optimizedMemory[action.key] = await llmClient.generateText(summaryPrompt, "You are a data summarization expert.");
+            actionsExecuted.push({ ...action, status: 'success' });
+          }
+          break;
 
-  // Move frequently accessed data to working memory
-  if (goals.includes('access_speed')) {
-    optimized.working_memory.recent_learnings = optimized.recent_learnings || [];
-    optimized.working_memory.active_tasks = optimized.active_tasks || [];
-  }
+        case 'archive':
+          if (optimizedMemory[action.source_key]) {
+            optimizedMemory[action.target_key] = optimizedMemory[action.source_key];
+            delete optimizedMemory[action.source_key];
+            actionsExecuted.push({ ...action, status: 'success' });
+          }
+          break;
 
-  // Compress historical data
-  if (goals.includes('memory_efficiency')) {
-    if (optimized.error_history && Array.isArray(optimized.error_history)) {
-      optimized.long_term_memory.error_patterns = optimized.error_history.slice(-10); // Keep last 10
-      delete optimized.error_history;
+        case 'delete_key':
+          if (optimizedMemory[action.key]) {
+            delete optimizedMemory[action.key];
+            actionsExecuted.push({ ...action, status: 'success' });
+          }
+          break;
+
+        case 'rename_key':
+          if (optimizedMemory[action.old_key]) {
+            optimizedMemory[action.new_key] = optimizedMemory[action.old_key];
+            delete optimizedMemory[action.old_key];
+            actionsExecuted.push({ ...action, status: 'success' });
+          }
+          break;
+      }
+    } catch (error) {
+      console.error(`Failed to execute memory optimization action: ${action.type}`, error);
+      actionsExecuted.push({ ...action, status: 'failed', error: error instanceof Error ? error.message : String(error) });
     }
   }
 
-  return optimized;
+  return {
+    optimizedMemory: optimizedMemory,
+    summary: `Executed ${actionsExecuted.length} optimization actions.`,
+    actions_executed: actionsExecuted,
+  };
 }
 
 async function logMemoryEvent(
