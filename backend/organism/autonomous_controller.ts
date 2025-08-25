@@ -592,13 +592,29 @@ export async function _executeComputerOperationLogic(
         };
       }
 
-      case 'automation':
-        return {
-          operation: 'automation',
-          script: operationDetails.script,
-          result: 'simulated_automation_success',
-          timestamp: new Date()
-        };
+      case 'automation': {
+        const { script } = operationDetails;
+        if (!Array.isArray(script)) {
+          throw new Error('Automation operation requires a script, which must be an array of operations.');
+        }
+
+        const results = [];
+        for (const step of script) {
+          // IMPORTANT: We must still run the top-level safety check for each step in the script.
+          const safetyCheck = await validateOperationSafety(step.operation_type, step.operation_details);
+          if (!safetyCheck.safe) {
+            throw new Error(`Automation script halted for safety. Unsafe step: ${JSON.stringify(step)}. Reason: ${safetyCheck.reason}`);
+          }
+
+          const stepResult = await _executeComputerOperationLogic(
+            organism_id,
+            step.operation_type,
+            step.operation_details
+          );
+          results.push(stepResult);
+        }
+        return results;
+      }
 
       case 'self_modify_code': {
         const { target_file, change_description } = operationDetails;
