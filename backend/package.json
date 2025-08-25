@@ -4,13 +4,17 @@
   "type": "module",
   "packageManager": "bun",
   "scripts": {
-    "build": "cd ../frontend \u0026\u0026 bun install \u0026\u0026 vite build --outDir=../backend/frontend/dist"
+    "build": "cd ../frontend \u0026\u0026 bun install \u0026\u0026 vite build --outDir=../backend/frontend/dist",
+    "test": "vitest"
   },
   "dependencies": {
     "encore.dev": "^1.48.13",
-    "hnswlib-node": "^3.0.0"
+    "hnswlib-node": "^3.0.0",
+    "pino": "^9.2.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^1.6.0",
+    "pino-pretty": "^11.2.1"
   }
 }

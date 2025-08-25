@@ -1,11 +1,12 @@
 import { HierarchicalNSW } from 'hnswlib-node';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { config } from '../config';
+import { logger } from '../logger';
 
-const DIMENSIONS = 384; // For sentence-transformers/all-minilm-l6-v2
-const MAX_ELEMENTS = 10000; // Max number of items to store
-const INDEX_PATH = path.resolve(process.cwd(), 'organism_sandbox', 'vector_index.bin');
-const MAP_PATH = path.resolve(process.cwd(), 'organism_sandbox', 'vector_index_map.json');
+const sandboxPath = path.resolve(process.cwd(), config.sandbox.path());
+const INDEX_PATH = path.join(sandboxPath, config.vectorStore.indexPath());
+const MAP_PATH = path.join(sandboxPath, config.vectorStore.mapPath());
 
 /**
  * A singleton class to manage the vector store using HNSWLib.
@@ -22,7 +23,7 @@ export class VectorStore {
   private isInitialized: boolean = false;
 
   private constructor() {
-    this.index = new HierarchicalNSW('l2', DIMENSIONS);
+    this.index = new HierarchicalNSW('l2', config.vectorStore.dimensions());
   }
 
   public static async getInstance(): Promise<VectorStore> {
@@ -42,11 +43,11 @@ export class VectorStore {
 
       // Load the index and map if they exist
       await this.load();
-      console.log('Vector store initialized from existing files.');
+      logger.info('Vector store initialized from existing files.');
     } catch (error) {
       // If files don't exist or are corrupt, initialize a new index
-      console.log('No existing vector store found. Initializing a new one.');
-      this.index.initIndex(MAX_ELEMENTS);
+      logger.info('No existing vector store found. Initializing a new one.');
+      this.index.initIndex(config.vectorStore.maxElements());
     }
 
     this.isInitialized = true;
@@ -58,7 +59,7 @@ export class VectorStore {
     // If the ID already has a label, we don't add it again.
     // A more advanced implementation might update the vector.
     if (this.idToLabelMap.has(id)) {
-      console.warn(`Vector with ID ${id} already exists in the store. Skipping.`);
+      logger.warn({ vectorId: id }, `Vector with ID already exists in the store. Skipping.`);
       return;
     }
 
@@ -95,9 +96,9 @@ export class VectorStore {
       });
       await fs.writeFile(MAP_PATH, mapData, 'utf8');
 
-      console.log('Vector store saved successfully.');
+      logger.info('Vector store saved successfully.');
     } catch (error) {
-      console.error('Failed to save vector store:', error);
+      logger.error({ err: error, path: INDEX_PATH }, 'Failed to save vector store');
     }
   }
 

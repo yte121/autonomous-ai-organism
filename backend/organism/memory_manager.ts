@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import type { Organism, KnowledgeEntry } from "./types";
 
 interface MemoryCompressionRequest {
@@ -228,95 +229,71 @@ async function performMemoryCompression(
   retentionThreshold: number,
   maxMemorySize: number
 ): Promise<any> {
-  const initialMemory = JSON.parse(JSON.stringify(organism.memory)); // Deep copy
-  const initialSize = JSON.stringify(initialMemory).length;
+  const currentMemory = organism.memory;
+  const memorySize = JSON.stringify(currentMemory).length;
 
-  if (initialSize <= maxMemorySize) {
+  if (memorySize <= maxMemorySize) {
     return {
-      compressedMemory: initialMemory,
+      compressedMemory: currentMemory,
       compressedCount: 0,
       reductionPercentage: 0,
-      preservedCount: Object.keys(initialMemory).length,
-      summary: "No compression needed - memory within limits."
+      preservedCount: Object.keys(currentMemory).length,
+      summary: "No compression needed - memory within limits"
     };
   }
 
-  let compressedMemory = initialMemory;
-  let compressedCount = 0;
+  const systemPrompt = `You are a memory compression specialist for AI organisms. Compress memories while preserving critical information based on the specified strategy.
 
-  const getMemorySize = (mem: any) => JSON.stringify(mem).length;
+Current Memory Size: ${memorySize} bytes
+Max Memory Size: ${maxMemorySize} bytes
+Retention Threshold: ${retentionThreshold}
+Strategy: ${strategy}
 
-  // Find all array-based memories that can be compressed
-  const compressibleMemories: { key: string, items: any[] }[] = [];
-  for (const key in compressedMemory) {
-    if (Array.isArray(compressedMemory[key])) {
-      compressibleMemories.push({ key, items: compressedMemory[key] });
-    }
+Compression strategies:
+- temporal: Prioritize recent memories
+- importance: Prioritize high-importance memories
+- frequency: Prioritize frequently accessed memories
+- hybrid: Combine all factors`;
+
+  const prompt = `Current Memory Structure:
+${JSON.stringify(currentMemory, null, 2)}
+
+Compress this memory structure according to the ${strategy} strategy. Return a JSON object with:
+1. compressed_memory: The compressed memory structure
+2. compression_summary: Summary of what was compressed
+3. critical_items_preserved: List of critical items kept
+4. compression_ratio: Percentage of memory reduced
+
+Ensure critical learnings, recent experiences, and high-value knowledge are preserved.`;
+
+  const response = await llmClient.generateText(prompt, systemPrompt);
+
+  try {
+    const compressionResult = JSON.parse(response);
+    const compressedSize = JSON.stringify(compressionResult.compressed_memory).length;
+    const reductionPercentage = ((memorySize - compressedSize) / memorySize) * 100;
+
+    return {
+      compressedMemory: compressionResult.compressed_memory,
+      compressedCount: Object.keys(currentMemory).length - Object.keys(compressionResult.compressed_memory).length,
+      reductionPercentage: reductionPercentage,
+      preservedCount: Object.keys(compressionResult.compressed_memory).length,
+      summary: compressionResult.compression_summary || `Compressed using ${strategy} strategy`
+    };
+  } catch (error) {
+    // Fallback compression - remove oldest non-critical entries
+    const compressedMemory = await fallbackCompression(currentMemory, maxMemorySize);
+    const compressedSize = JSON.stringify(compressedMemory).length;
+    const reductionPercentage = ((memorySize - compressedSize) / memorySize) * 100;
+
+    return {
+      compressedMemory,
+      compressedCount: Object.keys(currentMemory).length - Object.keys(compressedMemory).length,
+      reductionPercentage,
+      preservedCount: Object.keys(compressedMemory).length,
+      summary: "Fallback compression applied due to parsing error"
+    };
   }
-
-  // Flatten all items from compressible arrays into a single list with metadata
-  let allItems = compressibleMemories.flatMap(({ key, items }) =>
-    items.map((item, index) => ({
-      ...item,
-      _originalKey: key,
-      _originalIndex: index
-    }))
-  );
-
-  switch (strategy) {
-    case 'temporal':
-      // Sort by timestamp, oldest first. Items without a timestamp are considered oldest.
-      allItems.sort((a, b) => {
-        const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
-        const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
-        return timeA - timeB;
-      });
-      break;
-
-    case 'importance':
-      // Sort by confidence score, lowest first. Items without a score are considered least important.
-      allItems.sort((a, b) => (a.confidence_score || 0) - (b.confidence_score || 0));
-      break;
-
-    default:
-      // For other strategies, fallback to temporal for now
-      allItems.sort((a, b) => {
-        const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
-        const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
-        return timeA - timeB;
-      });
-      break;
-  }
-
-  // Iteratively remove items until memory size is within the limit
-  while (getMemorySize(compressedMemory) > maxMemorySize && allItems.length > 0) {
-    const itemToRemove = allItems.shift();
-    if (itemToRemove) {
-      const originalArray = compressedMemory[itemToRemove._originalKey];
-      if (originalArray) {
-        // Find and remove the specific item from the original array
-        const itemIndex = originalArray.findIndex((item: any) =>
-          item.timestamp === itemToRemove.timestamp && item.source === itemToRemove.source
-        );
-        if (itemIndex > -1) {
-          originalArray.splice(itemIndex, 1);
-          compressedCount++;
-        }
-      }
-    }
-  }
-
-  const finalSize = getMemorySize(compressedMemory);
-  const reductionPercentage = ((initialSize - finalSize) / initialSize) * 100;
-  const preservedCount = Object.values(compressedMemory).reduce((acc: number, val: any) => acc + (Array.isArray(val) ? val.length : 1), 0);
-
-  return {
-    compressedMemory,
-    compressedCount,
-    reductionPercentage: parseFloat(reductionPercentage.toFixed(2)),
-    preservedCount,
-    summary: `Compressed ${compressedCount} memories using '${strategy}' strategy, reducing memory by ${reductionPercentage.toFixed(2)}%.`
-  };
 }
 
 async function fallbackCompression(memory: any, maxSize: number): Promise<any> {
@@ -545,31 +522,14 @@ async function performMemoryAnalysis(
   analysisType: string,
   timeRange?: { start: Date; end: Date }
 ): Promise<any> {
-  // 1. Perform algorithmic analysis to extract concrete metrics
-  const memoryMetrics = {
-    totalKeys: Object.keys(organism.memory).length,
-    totalSizeMB: (JSON.stringify(organism.memory).length / (1024 * 1024)).toFixed(4),
-    keyDistribution: Object.entries(organism.memory).reduce((acc, [key, value]) => {
-      acc[key] = (JSON.stringify(value).length / 1024).toFixed(2) + ' KB';
-      return acc;
-    }, {}),
-    arrayLengths: Object.entries(organism.memory)
-      .filter(([_, value]) => Array.isArray(value))
-      .reduce((acc, [key, value]) => {
-        acc[key] = value.length;
-        return acc;
-      }, {}),
-  };
-
-  // 2. Use LLM to generate insights based on the metrics, not the raw data
-  const systemPrompt = `You are a memory analysis specialist for AI organisms. Analyze the provided memory metrics and generate actionable insights for the specified analysis type.
+  const systemPrompt = `You are a memory analysis specialist for AI organisms. Analyze memory patterns and provide actionable insights.
 
 Analysis Type: ${analysisType}
 Organism Generation: ${organism.generation}
 Current Capabilities: ${organism.capabilities.join(', ')}`;
 
-  const prompt = `Analyze the following organism memory metrics:
-${JSON.stringify(memoryMetrics, null, 2)}
+  let prompt = `Analyze the following organism memory structure:
+${JSON.stringify(organism.memory, null, 2)}
 
 Performance Metrics:
 ${JSON.stringify(organism.performance_metrics, null, 2)}
@@ -577,9 +537,15 @@ ${JSON.stringify(organism.performance_metrics, null, 2)}
 Provide analysis for: ${analysisType}
 
 Return a JSON object with:
-1. analysis_summary: Key findings based on the metrics.
-2. insights: A list of actionable insights.
-3. recommendations: Specific, actionable recommendations for optimization.`;
+1. analysis_summary: Key findings
+2. insights: List of actionable insights
+3. recommendations: Specific recommendations
+4. metrics: Relevant metrics and scores
+5. trends: Identified patterns or trends`;
+
+  if (timeRange) {
+    prompt += `\n\nTime Range: ${timeRange.start.toISOString()} to ${timeRange.end.toISOString()}`;
+  }
 
   const response = await llmClient.generateText(prompt, systemPrompt);
 
@@ -590,7 +556,7 @@ Return a JSON object with:
       ...analysis,
     };
   } catch (error) {
-    console.error("Failed to parse memory analysis from LLM:", error);
+    logger.error({ err: error, analysisType, organismId: organism.id, functionName: 'performMemoryAnalysis' }, "Failed to parse memory analysis from LLM");
     return {
       metrics: memoryMetrics,
       analysis_summary: "Failed to generate LLM-based analysis.",
@@ -605,88 +571,81 @@ async function optimizeMemoryForPerformance(
   optimizationGoals: string[],
   constraints?: Record<string, any>
 ): Promise<any> {
-  const systemPrompt = `You are a memory optimization specialist. Generate a series of actions to optimize the given memory structure for better performance.
+  const systemPrompt = `You are a memory optimization specialist. Optimize organism memory structure for better performance while maintaining critical information.
 
 Optimization Goals: ${optimizationGoals.join(', ')}
-Constraints: ${JSON.stringify(constraints || {})}
-
-Return a JSON object with a single key "actions". The value should be an array of action objects.
-Valid action types are: 'summarize', 'archive', 'delete_key', 'rename_key'.
-- summarize: { "type": "summarize", "key": "path.to.key" } -> Summarizes the content of the key.
-- archive: { "type": "archive", "source_key": "path.to.source", "target_key": "path.to.target" } -> Moves content.
-- delete_key: { "type": "delete_key", "key": "path.to.key" } -> Deletes a key.
-- rename_key: { "type": "rename_key", "old_key": "path.to.old", "new_key": "path.to.new" } -> Renames a key.`;
+Current Performance: ${JSON.stringify(organism.performance_metrics)}
+Constraints: ${JSON.stringify(constraints || {})}`;
 
   const prompt = `Current Memory Structure:
 ${JSON.stringify(organism.memory, null, 2)}
 
-Generate a plan to optimize this memory structure based on the goals.`;
+Optimize this memory structure to achieve the following goals:
+${optimizationGoals.map(goal => `- ${goal}`).join('\n')}
+
+Return a JSON object with:
+1. optimized_memory: The optimized memory structure
+2. optimization_summary: Summary of changes made
+3. performance_improvements: Expected performance gains
+4. preserved_critical_data: List of critical data preserved
+5. optimization_metrics: Metrics about the optimization
+
+Ensure all critical learnings and capabilities are preserved while improving access patterns and reducing memory overhead.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
-  let optimizationPlan;
+
   try {
-    optimizationPlan = JSON.parse(response);
-    if (!optimizationPlan.actions || !Array.isArray(optimizationPlan.actions)) {
-      throw new Error("Invalid plan format: 'actions' array not found.");
-    }
-  } catch (error) {
-    console.error("Failed to parse memory optimization plan:", error);
+    const optimizationResult = JSON.parse(response);
     return {
-      optimizedMemory: organism.memory,
-      summary: 'Failed to generate a valid optimization plan.',
-      actions_executed: []
+      optimizedMemory: optimizationResult.optimized_memory || organism.memory,
+      summary: optimizationResult.optimization_summary || 'Memory structure optimized',
+      improvements: optimizationResult.performance_improvements || [],
+      preservedData: optimizationResult.preserved_critical_data || [],
+      metrics: optimizationResult.optimization_metrics || {}
+    };
+  } catch (error) {
+    logger.error({ err: error, organismId: organism.id, functionName: 'optimizeMemoryForPerformance' }, "Failed to parse memory optimization plan");
+    // Fallback optimization
+    const optimizedMemory = await fallbackMemoryOptimization(organism.memory, optimizationGoals);
+    return {
+      optimizedMemory,
+      summary: 'Fallback optimization applied',
+      improvements: ['Improved memory structure organization'],
+      preservedData: ['All critical data preserved'],
+      metrics: { optimization_confidence: 0.6 }
     };
   }
+}
 
-  const optimizedMemory = JSON.parse(JSON.stringify(organism.memory)); // Deep copy
-  const actionsExecuted = [];
+async function fallbackMemoryOptimization(memory: any, goals: string[]): Promise<any> {
+  const optimized = { ...memory };
 
-  for (const action of optimizationPlan.actions) {
-    try {
-      switch (action.type) {
-        case 'summarize':
-          if (optimizedMemory[action.key]) {
-            const contentToSummarize = JSON.stringify(optimizedMemory[action.key]);
-            const summaryPrompt = `Summarize the following data in a concise paragraph:\n\n${contentToSummarize}`;
-            optimizedMemory[action.key] = await llmClient.generateText(summaryPrompt, "You are a data summarization expert.");
-            actionsExecuted.push({ ...action, status: 'success' });
-          }
-          break;
+  // Organize memory into structured categories
+  if (!optimized.core_memories) {
+    optimized.core_memories = {};
+  }
+  if (!optimized.working_memory) {
+    optimized.working_memory = {};
+  }
+  if (!optimized.long_term_memory) {
+    optimized.long_term_memory = {};
+  }
 
-        case 'archive':
-          if (optimizedMemory[action.source_key]) {
-            optimizedMemory[action.target_key] = optimizedMemory[action.source_key];
-            delete optimizedMemory[action.source_key];
-            actionsExecuted.push({ ...action, status: 'success' });
-          }
-          break;
+  // Move frequently accessed data to working memory
+  if (goals.includes('access_speed')) {
+    optimized.working_memory.recent_learnings = optimized.recent_learnings || [];
+    optimized.working_memory.active_tasks = optimized.active_tasks || [];
+  }
 
-        case 'delete_key':
-          if (optimizedMemory[action.key]) {
-            delete optimizedMemory[action.key];
-            actionsExecuted.push({ ...action, status: 'success' });
-          }
-          break;
-
-        case 'rename_key':
-          if (optimizedMemory[action.old_key]) {
-            optimizedMemory[action.new_key] = optimizedMemory[action.old_key];
-            delete optimizedMemory[action.old_key];
-            actionsExecuted.push({ ...action, status: 'success' });
-          }
-          break;
-      }
-    } catch (error) {
-      console.error(`Failed to execute memory optimization action: ${action.type}`, error);
-      actionsExecuted.push({ ...action, status: 'failed', error: error instanceof Error ? error.message : String(error) });
+  // Compress historical data
+  if (goals.includes('memory_efficiency')) {
+    if (optimized.error_history && Array.isArray(optimized.error_history)) {
+      optimized.long_term_memory.error_patterns = optimized.error_history.slice(-10); // Keep last 10
+      delete optimized.error_history;
     }
   }
 
-  return {
-    optimizedMemory: optimizedMemory,
-    summary: `Executed ${actionsExecuted.length} optimization actions.`,
-    actions_executed: actionsExecuted,
-  };
+  return optimized;
 }
 
 async function logMemoryEvent(

@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import { _evolveLogic } from "./evolve";
 import { _executeComputerOperationLogic } from "./autonomous_controller";
 import type { Organism, Task, EvolutionRequest } from "./types";
@@ -244,7 +245,7 @@ Based on this analysis, provide specific, actionable recommendations.`;
     }
     throw new Error("Invalid recommendation format from LLM.");
   } catch (error) {
-    console.error("Failed to generate structured ecosystem recommendations:", error);
+    logger.error({ err: error, healthAnalysis, functionName: 'generateEcosystemRecommendations' }, "Failed to generate structured ecosystem recommendations");
     // Fallback to generating simple text-based recommendations if structured generation fails
     const fallbackRecommendations: any[] = [];
     if (healthAnalysis.critical_issues.length > 0) {
@@ -303,7 +304,7 @@ For 'create_capability', provide a 'name' and a 'description'.`;
       ...optimizationResult
     };
   } catch (error) {
-    console.error("Failed to parse optimization plan from LLM:", error);
+    logger.error({ err: error, functionName: 'performEcosystemOptimization' }, "Failed to parse optimization plan from LLM");
     return {
       simulation_mode: simulationMode,
       optimization_goals: optimizationGoals,
@@ -341,12 +342,12 @@ async function applyOptimizationChanges(optimizationResult: any): Promise<any> {
             break;
 
           default:
-            console.warn(`Unsupported modification action: ${modification.action}`);
+            logger.warn({ modification }, `Unsupported modification action`);
             continue;
         }
         results.push({ organismId, action: modification.action, status: 'success', result: operationResult });
       } catch (error) {
-        console.error(`Failed to apply optimization for organism ${organismId}:`, error);
+        logger.error({ err: error, organismId, modification, functionName: 'applyOptimizationChanges' }, `Failed to apply optimization for organism`);
         results.push({ organismId, action: modification.action, status: 'failed', error: error instanceof Error ? error.message : String(error) });
       }
     }
@@ -402,7 +403,7 @@ Calculate the optimal resource allocation for these organisms using the '${alloc
     if (!plan.allocation_plan) throw new Error("Invalid plan format from LLM.");
     return plan;
   } catch (error) {
-    console.error("Failed to parse resource allocation plan from LLM:", error);
+    logger.error({ err: error, functionName: 'calculateResourceAllocation' }, "Failed to parse resource allocation plan from LLM");
     // Fallback to equal allocation
     const equalShare = organisms.length > 0 ? 1 / organisms.length : 0;
     const allocationPlan = organisms.reduce((plan, organism) => {
@@ -432,7 +433,7 @@ async function applyResourceAllocation(allocationResult: any): Promise<any> {
       `;
       results.push({ organismId, status: 'success', allocated: allocation });
     } catch (error) {
-      console.error(`Failed to allocate resources for organism ${organismId}:`, error);
+      logger.error({ err: error, organismId, allocation, functionName: 'applyResourceAllocation' }, `Failed to allocate resources for organism`);
       results.push({ organismId, status: 'failed', error: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -481,7 +482,7 @@ Orchestrate ecosystem evolution by:
     let evolvedCount = 0;
 
     if (candidates && Array.isArray(candidates) && candidates.length > 0) {
-      console.log(`Ecosystem evolution triggered for ${candidates.length} candidates.`);
+      logger.info(`Ecosystem evolution triggered for ${candidates.length} candidates.`);
       for (const organismId of candidates) {
         try {
           const evolutionRequest: EvolutionRequest = {
@@ -492,7 +493,7 @@ Orchestrate ecosystem evolution by:
           await _evolveLogic(evolutionRequest);
           evolvedCount++;
         } catch (error) {
-          console.error(`Failed to evolve organism ${organismId} during ecosystem evolution:`, error);
+          logger.error({ err: error, organismId, functionName: 'orchestrateEcosystemEvolution' }, `Failed to evolve organism during ecosystem evolution`);
         }
       }
     }
@@ -520,7 +521,7 @@ Orchestrate ecosystem evolution by:
 
     return evolutionPlan;
   } catch (error) {
-    console.error("Failed to parse evolution plan or execute evolution:", error);
+    logger.error({ err: error, functionName: 'orchestrateEcosystemEvolution' }, "Failed to parse evolution plan or execute evolution");
     return {
       error: "Failed to execute ecosystem evolution.",
       details: error instanceof Error ? error.message : String(error),
@@ -603,7 +604,7 @@ Based on this analysis, provide specific, actionable recommendations to improve 
     }
     throw new Error("Invalid recommendation format from LLM.");
   } catch (error) {
-    console.error("Failed to generate structured diversity recommendations:", error);
+    logger.error({ err: error, diversityAnalysis, functionName: 'generateDiversityRecommendations' }, "Failed to generate structured diversity recommendations");
     const fallbackRecommendations: any[] = [];
     if (diversityAnalysis.diversity_gaps?.length > 0) {
       fallbackRecommendations.push({

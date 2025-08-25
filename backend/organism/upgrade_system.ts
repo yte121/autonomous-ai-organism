@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import type { Organism } from "./types";
 
 interface UpgradeRequest {
@@ -261,7 +262,7 @@ Based on the profile and request, generate a precise, actionable upgrade plan in
   try {
     return JSON.parse(response);
   } catch (error) {
-    console.error("Failed to parse upgrade plan from LLM:", error);
+    logger.error({ err: error, organismId: organism.id, requestedType, functionName: 'generateUpgradePlan' }, "Failed to parse upgrade plan from LLM");
     // Fallback to a simple knowledge upgrade
     return {
       upgrade_type: 'knowledge',

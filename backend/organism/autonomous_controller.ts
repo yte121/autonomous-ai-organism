@@ -5,6 +5,7 @@ import * as path from "path";
 import * as os from "os";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import type { Organism, Task, CreateTaskRequest } from "./types";
 
 interface AutonomousExecutionRequest {
@@ -438,7 +439,7 @@ Is this operation safe? Provide your response in the required JSON format.`;
     // If the response is not in the expected format, default to unsafe.
     return { safe: false, reason: 'Safety assessment response from LLM was malformed.' };
   } catch (error) {
-    console.error('Error during safety validation LLM call:', error);
+    logger.error({ err: error, operationType, operationDetails, functionName: 'validateOperationSafety' }, 'Error during safety validation LLM call');
     // If the LLM call fails for any reason, default to unsafe.
     return { safe: false, reason: 'Failed to get a safety assessment from the LLM.' };
   }
@@ -471,293 +472,22 @@ async function _testUpgradedCode(filePath: string): Promise<{ success: boolean; 
   } catch (error: any) {
     // The 'exec' promise rejects if the command returns a non-zero exit code, which tsc does on error.
     const errorMessage = error.stderr || error.stdout || error.message;
-    console.error('Code validation failed:', errorMessage);
+      logger.error({ err: error, filePath, functionName: '_testUpgradedCode' }, 'Code validation failed');
     return { success: false, output: errorMessage };
   }
 }
 
+import { executeComputerOperationLogic } from './operations/computer_operations';
+
+// The _executeComputerOperationLogic has been moved to its own file to make it testable.
+// This function remains as a wrapper to preserve the original call structure.
+// A more thorough refactor would update all callers to use the new function directly.
 export async function _executeComputerOperationLogic(
-  organism_id: string,
-  operationType: string,
-  operationDetails: Record<string, any>
-): Promise<any> {
-  const sandboxDir = path.resolve(process.cwd(), 'organism_sandbox');
-  await fs.mkdir(sandboxDir, { recursive: true }); // Ensure sandbox exists
-
-  // Helper function to ensure the path is within the sandbox
-  const isPathInSandbox = (filePath: string): boolean => {
-    const resolvedPath = path.resolve(filePath);
-    return resolvedPath.startsWith(sandboxDir);
-  };
-
-  try {
-    switch (operationType) {
-      case 'file_system': {
-        const { action, path: targetPath, content } = operationDetails;
-
-        if (!targetPath) {
-          throw new Error('File system action requires a path.');
-        }
-        const safePath = path.join(sandboxDir, targetPath);
-
-        if (!isPathInSandbox(safePath)) {
-          throw new Error(`Path is outside the sandbox: ${targetPath}`);
-        }
-
-        switch (action) {
-          case 'readFile':
-            return await fs.readFile(safePath, 'utf8');
-          case 'writeFile':
-            if (typeof content !== 'string') {
-              throw new Error('writeFile action requires string content.');
-            }
-            await fs.writeFile(safePath, content, 'utf8');
-            return { result: `Successfully wrote to ${targetPath}` };
-          case 'readdir':
-            return await fs.readdir(safePath);
-          case 'mkdir':
-            await fs.mkdir(safePath, { recursive: true });
-            return { result: `Successfully created directory ${targetPath}` };
-          case 'rm':
-            await fs.rm(safePath, { recursive: true, force: true });
-            return { result: `Successfully deleted ${targetPath}` };
-          default:
-            throw new Error(`Unsupported file system action: ${action}`);
-        }
-      }
-
-      case 'process': {
-        const { command } = operationDetails;
-        if (typeof command !== 'string') {
-          throw new Error('Process execution requires a command string.');
-        }
-
-        return new Promise((resolve, reject) => {
-          exec(command, { cwd: sandboxDir }, (error, stdout, stderr) => {
-            if (error) {
-              // Reject with a structured error
-              reject({
-                message: error.message,
-                stdout,
-                stderr,
-              });
-              return;
-            }
-            // Resolve with a structured success response
-            resolve({ stdout, stderr });
-          });
-        });
-      }
-
-      case 'network': {
-        const { url, method, headers, body } = operationDetails;
-        if (!url) {
-          throw new Error('Network operation requires a URL.');
-        }
-
-        const response = await fetch(url, { method: method || 'GET', headers, body: body ? JSON.stringify(body) : undefined });
-        const responseBody = await response.text();
-
-        // Try to parse as JSON if the content type suggests it
-        let data;
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          try {
-            data = JSON.parse(responseBody);
-          } catch {
-            data = responseBody; // Not valid JSON, return as text
-          }
-        } else {
-          data = responseBody;
-        }
-
-        return {
-          status: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
-          body: data,
-        };
-      }
-
-      case 'system_info': {
-        const cpus = os.cpus();
-        return {
-          platform: os.platform(),
-          arch: os.arch(),
-          hostname: os.hostname(),
-          uptime_seconds: os.uptime(),
-          cpu_cores: cpus.length,
-          cpu_model: cpus.length > 0 ? cpus[0].model : 'unknown',
-          total_memory_bytes: os.totalmem(),
-          free_memory_bytes: os.freemem(),
-        };
-      }
-
-      case 'automation': {
-        const { script } = operationDetails;
-        if (!Array.isArray(script)) {
-          throw new Error('Automation operation requires a script, which must be an array of operations.');
-        }
-
-        const results = [];
-        for (const step of script) {
-          // IMPORTANT: We must still run the top-level safety check for each step in the script.
-          const safetyCheck = await validateOperationSafety(step.operation_type, step.operation_details);
-          if (!safetyCheck.safe) {
-            throw new Error(`Automation script halted for safety. Unsafe step: ${JSON.stringify(step)}. Reason: ${safetyCheck.reason}`);
-          }
-
-          const stepResult = await _executeComputerOperationLogic(
-            organism_id,
-            step.operation_type,
-            step.operation_details
-          );
-          results.push(stepResult);
-        }
-        return results;
-      }
-
-      case 'self_modify_code': {
-        const { target_file, change_description } = operationDetails;
-        if (!target_file || !change_description) {
-          throw new Error('self_modify_code requires a target_file and a change_description.');
-        }
-
-        const fullTargetPath = path.resolve(process.cwd(), target_file);
-        // Security check: ensure we are only modifying files within the backend directory
-        if (!fullTargetPath.startsWith(path.resolve(process.cwd(), 'backend'))) {
-          throw new Error('Self-modification is only allowed for files within the backend directory.');
-        }
-
-        // 1. Backup the original code
-        const backupPath = await _backupCode(fullTargetPath);
-
-        // 2. Read the original code
-        const originalCode = await fs.readFile(fullTargetPath, 'utf8');
-
-        // 3. Use LLM to generate the upgraded code
-        const upgradePrompt = `You are an expert TypeScript engineer. Rewrite the following code to incorporate this change: "${change_description}". Return ONLY the complete, raw, updated code for the entire file. Do not include any explanations or markdown formatting.`;
-        const newCode = await llmClient.generateText(originalCode, upgradePrompt);
-
-        // 4. Save new code to a temporary file for testing
-        const tempUpgradeDir = path.join(sandboxDir, 'upgrades');
-        await fs.mkdir(tempUpgradeDir, { recursive: true });
-        const tempFilePath = path.join(tempUpgradeDir, path.basename(target_file));
-        await fs.writeFile(tempFilePath, newCode, 'utf8');
-
-        // 5. Test the new code
-        const testResult = await _testUpgradedCode(tempFilePath);
-
-        // 6. Apply the change if the test passes
-        if (testResult.success) {
-          await fs.writeFile(fullTargetPath, newCode, 'utf8');
-          await fs.rm(tempFilePath); // Clean up temp file
-          return {
-            result: 'Self-modification successful.',
-            backup_path: backupPath,
-            test_output: testResult.output
-          };
-        } else {
-          await fs.rm(tempFilePath); // Clean up temp file
-          throw new Error(`Self-modification failed: New code did not pass validation. Error: ${testResult.output}`);
-        }
-      }
-
-      case 'self_modify_prompt': {
-        const { target_file, prompt_key, new_prompt_text } = operationDetails;
-        if (!target_file || !prompt_key || !new_prompt_text) {
-          throw new Error('self_modify_prompt requires a target_file, prompt_key, and new_prompt_text.');
-        }
-
-        const fullTargetPath = path.resolve(process.cwd(), target_file);
-        if (!fullTargetPath.startsWith(path.resolve(process.cwd(), 'backend'))) {
-          throw new Error('Self-modification is only allowed for files within the backend directory.');
-        }
-
-        // 1. Backup the original code
-        const backupPath = await _backupCode(fullTargetPath);
-
-        // 2. Read the original code
-        const originalCode = await fs.readFile(fullTargetPath, 'utf8');
-
-        // 3. Find and replace the prompt using markers
-        const startMarker = `// <PROMPT-START:${prompt_key}>`;
-        const endMarker = `// <PROMPT-END:${prompt_key}>`;
-        const regex = new RegExp(`${startMarker}\\s*const systemPrompt = \`([\\s\\S]*?)\`;\\s*${endMarker}`, 's');
-
-        if (!regex.test(originalCode)) {
-          throw new Error(`Could not find prompt markers for key '${prompt_key}' in file '${target_file}'.`);
-        }
-
-        const newSystemPrompt = `const systemPrompt = \`${new_prompt_text}\`;`;
-        const newCode = originalCode.replace(regex, `${startMarker}\n  ${newSystemPrompt}\n  ${endMarker}`);
-
-        // 4. Save new code to a temporary file for testing
-        const tempUpgradeDir = path.join(sandboxDir, 'upgrades');
-        await fs.mkdir(tempUpgradeDir, { recursive: true });
-        const tempFilePath = path.join(tempUpgradeDir, path.basename(target_file));
-        await fs.writeFile(tempFilePath, newCode, 'utf8');
-
-        // 5. Test the new code
-        const testResult = await _testUpgradedCode(tempFilePath);
-
-        // 6. Apply the change if the test passes
-        if (testResult.success) {
-          await fs.writeFile(fullTargetPath, newCode, 'utf8');
-          await fs.rm(tempFilePath); // Clean up temp file
-          return {
-            result: 'Prompt modification successful.',
-            backup_path: backupPath,
-            test_output: testResult.output
-          };
-        } else {
-          await fs.rm(tempFilePath); // Clean up temp file
-          throw new Error(`Prompt modification failed: New code did not pass validation. Error: ${testResult.output}`);
-        }
-      }
-
-      case 'create_capability': {
-        const { name, description } = operationDetails;
-        if (!name || !description) {
-          throw new Error('create_capability requires a name and a description.');
-        }
-
-        // Use LLM to generate the code for the new capability
-        const codeGenPrompt = `You are an expert TypeScript engineer. Write a single, standalone, asynchronous TypeScript function with the name "${name}".
-The function should do the following: "${description}".
-It should take any necessary parameters as a single object argument and return a Promise resolving to any relevant output.
-Return ONLY the raw TypeScript code for the function. Do not include any explanations, markdown formatting, or import statements.`;
-
-        const codeBody = await llmClient.generateText(codeGenPrompt, 'You are a code generation specialist.');
-
-        // Save the new capability to the database
-        await organismDB.exec`
-          INSERT INTO custom_capabilities (organism_id, name, description, code_body)
-          VALUES (${organism_id}, ${name}, ${description}, ${codeBody})
-        `;
-
-        // Add the new capability to the organism's main capability list
-        const organism = await organismDB.queryRow<Organism>`SELECT capabilities FROM organisms WHERE id = ${organism_id}`;
-        if (organism) {
-          const updatedCapabilities = new Set(organism.capabilities);
-          updatedCapabilities.add(name);
-          await organismDB.exec`
-            UPDATE organisms SET capabilities = ${JSON.stringify(Array.from(updatedCapabilities))} WHERE id = ${organism_id}
-          `;
-        }
-
-        return {
-          result: `Successfully created and learned new capability: ${name}`
-        };
-      }
-
-      default:
-        throw new Error(`Unsupported operation type: ${operationType}`);
-    }
-  } catch (error: any) {
-    console.error(`Error during computer operation '${operationType}':`, error);
-    // Re-throw a structured error to be caught by the API handler
-    throw new Error(`Operation failed: ${error.message}`);
-  }
+    organism_id: string,
+    operationType: string,
+    operationDetails: Record<string, any>
+  ): Promise<any> {
+    return executeComputerOperationLogic(organism_id, operationType, operationDetails);
 }
 
 async function logComputerOperation(

@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { logger } from '../logger';
 import type { Organism, EvolutionRequest } from "./types";
 export type { EvolutionRequest };
 
@@ -105,7 +106,7 @@ Based on this complete profile, generate a list of new capabilities and the reas
       reasoning: evolutionData.reasoning
     };
   } catch (error) {
-    console.error("Failed to generate evolved capabilities from LLM:", error);
+    logger.error({ err: error, organismId: organism.id, functionName: 'generateEvolvedCapabilities' }, "Failed to generate evolved capabilities from LLM");
     // Fallback to the old, simple logic if the LLM fails
     const fallbackCapabilities = new Set(organism.capabilities);
     improvements.forEach(imp => fallbackCapabilities.add(imp));
