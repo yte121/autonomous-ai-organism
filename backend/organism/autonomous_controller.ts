@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { exec } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
+import * as os from "os";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
 import type { Organism, Task, CreateTaskRequest } from "./types";
@@ -512,24 +513,48 @@ export async function _executeComputerOperationLogic(
         });
       }
 
-      // Keep other operations simulated for now
-      case 'network':
-        return {
-          operation: 'network',
-          action: operationDetails.action,
-          target: operationDetails.target,
-          result: 'simulated_network_operation_success',
-          timestamp: new Date()
-        };
+      case 'network': {
+        const { url, method, headers, body } = operationDetails;
+        if (!url) {
+          throw new Error('Network operation requires a URL.');
+        }
 
-      case 'system_info':
+        const response = await fetch(url, { method: method || 'GET', headers, body: body ? JSON.stringify(body) : undefined });
+        const responseBody = await response.text();
+
+        // Try to parse as JSON if the content type suggests it
+        let data;
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            data = JSON.parse(responseBody);
+          } catch {
+            data = responseBody; // Not valid JSON, return as text
+          }
+        } else {
+          data = responseBody;
+        }
+
         return {
-          operation: 'system_info',
-          cpu_usage: Math.random() * 100,
-          memory_usage: Math.random() * 100,
-          disk_usage: Math.random() * 100,
-          timestamp: new Date()
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: data,
         };
+      }
+
+      case 'system_info': {
+        const cpus = os.cpus();
+        return {
+          platform: os.platform(),
+          arch: os.arch(),
+          hostname: os.hostname(),
+          uptime_seconds: os.uptime(),
+          cpu_cores: cpus.length,
+          cpu_model: cpus.length > 0 ? cpus[0].model : 'unknown',
+          total_memory_bytes: os.totalmem(),
+          free_memory_bytes: os.freemem(),
+        };
+      }
 
       case 'automation':
         return {
