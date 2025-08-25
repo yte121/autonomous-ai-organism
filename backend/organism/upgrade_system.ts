@@ -18,8 +18,11 @@ interface UpgradeResponse {
   implementation_steps: string[];
 }
 
+import { _learnLogic, LearningRequest } from "../learn";
+import { _evolveLogic, EvolutionRequest } from "../evolve";
+
 // Enables organisms to upgrade themselves safely and efficiently.
-export const upgradeOrganism = api<UpgradeRequest, UpgradeResponse>(
+export const upgradeOrganism = api<UpgradeRequest, { result: any }>(
   { expose: true, method: "POST", path: "/organisms/:organism_id/upgrade" },
   async (req) => {
     const organism = await organismDB.queryRow<Organism>`
@@ -30,27 +33,46 @@ export const upgradeOrganism = api<UpgradeRequest, UpgradeResponse>(
       throw new Error("Organism not found or not active");
     }
 
-    // Analyze current state and determine upgrade plan
-    const upgradePlan = await generateUpgradePlan(organism, req.upgrade_type, req.target_metrics);
-    
-    // Assess risks and safety measures
-    const riskAssessment = await assessUpgradeRisks(organism, upgradePlan);
-    
-    // Create implementation steps
-    const implementationSteps = await createImplementationSteps(upgradePlan, riskAssessment);
+    // 1. Generate a structured upgrade plan
+    const plan = await generateUpgradePlan(organism, req.upgrade_type, req.target_metrics);
 
+    let result: any;
     const upgradeId = `upgrade_${Date.now()}`;
 
-    // Log upgrade plan
-    await logUpgradePlan(req.organism_id, upgradeId, upgradePlan, riskAssessment);
+    // 2. Execute the plan based on its type
+    switch (plan.upgrade_type) {
+      case 'knowledge':
+        const learnReq: LearningRequest = {
+          organism_id: req.organism_id,
+          source_type: plan.parameters.source_type,
+          source_url: plan.parameters.source_url,
+          learning_objectives: plan.parameters.learning_objectives,
+        };
+        result = await _learnLogic(learnReq);
+        break;
 
-    return {
-      upgrade_id: upgradeId,
-      upgrade_plan: upgradePlan.description,
-      estimated_improvement: upgradePlan.estimated_improvement,
-      risks: riskAssessment.risks,
-      implementation_steps: implementationSteps
-    };
+      case 'capability':
+        const evolveReq: EvolutionRequest = {
+          organism_id: req.organism_id,
+          evolution_triggers: plan.parameters.evolution_triggers || ['self_improvement_directive'],
+          target_improvements: plan.parameters.target_improvements,
+        };
+        result = await _evolveLogic(evolveReq);
+        break;
+
+      default:
+        // For now, other types are just planned but not executed
+        result = {
+          message: `Upgrade type '${plan.upgrade_type}' planned but not executed.`,
+          plan: plan
+        };
+        break;
+    }
+
+    // 3. Log the upgrade event
+    await logUpgradePlan(req.organism_id, upgradeId, plan, result);
+
+    return { result };
   }
 );
 
@@ -166,48 +188,52 @@ export const validateSafety = api<SafetyValidationRequest, { safety_report: any 
 
 async function generateUpgradePlan(
   organism: Organism,
-  upgradeType: string,
+  requestedType: string,
   targetMetrics?: Record<string, number>
 ): Promise<any> {
-  const systemPrompt = `You are an AI organism upgrade planner. Generate comprehensive upgrade plans that improve organism capabilities while maintaining safety and stability.
+  const systemPrompt = `You are an AI Organism Upgrade Planner. Your job is to analyze an organism and a requested upgrade type, then create a structured, actionable plan.
 
-Current Organism State:
-- Generation: ${organism.generation}
-- Capabilities: ${organism.capabilities.join(', ')}
+Your response MUST be a JSON object with the following structure:
+{
+  "upgrade_type": "knowledge" | "capability" | "performance" | "architecture",
+  "parameters": {
+    // if knowledge
+    "source_type": "internet" | "codebase",
+    "learning_objectives": string[],
+    "source_url": string | null,
+    // if capability
+    "target_improvements": string[],
+    "evolution_triggers": string[]
+  },
+  "reasoning": string
+}
+
+Analyze the organism's profile and decide on the most appropriate upgrade_type and parameters. If the requested type is 'knowledge', the top learning_objective should be to learn about the 'performance' or 'architecture' if those were requested.`;
+
+  const prompt = `**Organism Profile:**
+- Name: ${organism.name}
+- Capabilities: ${JSON.stringify(organism.capabilities)}
 - Performance Metrics: ${JSON.stringify(organism.performance_metrics)}
-- Learned Technologies: ${organism.learned_technologies.join(', ')}`;
 
-  const prompt = `Upgrade Type: ${upgradeType}
-Target Metrics: ${JSON.stringify(targetMetrics || {})}
+**Requested Upgrade:**
+- Type: ${requestedType}
+- Target Metrics: ${JSON.stringify(targetMetrics || {})}
 
-Generate a detailed upgrade plan including:
-1. Specific improvements to be made
-2. Estimated performance gains
-3. Required resources
-4. Implementation timeline
-5. Success criteria
-6. Rollback procedures
-
-Return as structured JSON.`;
+Based on the profile and request, generate a precise, actionable upgrade plan in the required JSON format. For a 'knowledge' upgrade, define a clear learning objective. For a 'capability' upgrade, define specific target improvements.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
-  
   try {
-    const plan = JSON.parse(response);
+    return JSON.parse(response);
+  } catch (error) {
+    console.error("Failed to parse upgrade plan from LLM:", error);
+    // Fallback to a simple knowledge upgrade
     return {
-      description: plan.description || response,
-      estimated_improvement: plan.estimated_improvement || {},
-      required_resources: plan.required_resources || [],
-      timeline: plan.timeline || 'unknown',
-      success_criteria: plan.success_criteria || []
-    };
-  } catch {
-    return {
-      description: response,
-      estimated_improvement: {},
-      required_resources: [],
-      timeline: 'unknown',
-      success_criteria: []
+      upgrade_type: 'knowledge',
+      parameters: {
+        source_type: 'internet',
+        learning_objectives: [`how to improve ${requestedType}`],
+      },
+      reasoning: 'Fell back to a basic knowledge upgrade due to a planning error.'
     };
   }
 }
@@ -274,18 +300,18 @@ async function createImplementationSteps(
 async function logUpgradePlan(
   organismId: string,
   upgradeId: string,
-  upgradePlan: any,
-  riskAssessment: any
+  plan: any,
+  result: any
 ): Promise<void> {
   await organismDB.exec`
     INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
     VALUES (
       ${organismId},
-      'upgrade_plan',
+      'upgrade_log',
       ${JSON.stringify({
         upgrade_id: upgradeId,
-        plan: upgradePlan,
-        risk_assessment: riskAssessment,
+        plan: plan,
+        result: result,
         timestamp: new Date()
       })},
       'upgrade_system',
