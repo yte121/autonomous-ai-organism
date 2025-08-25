@@ -105,3 +105,14 @@ You will need two terminals.
   bun run dev
   ```
   The frontend will be available at `http://localhost:5173`.
+
+## Configuration
+
+The application's core parameters are centralized in `backend/config.ts`. This file uses the Encore configuration framework to manage settings for various parts of the system.
+
+Key configurable areas include:
+-   **`llm`**: Settings for the Large Language Model client, including the default chat model, the embedding model, and the base API URL.
+-   **`vectorStore`**: Parameters for the vector store, such as the embedding dimensions, max elements, and file paths for the index.
+-   **`sandbox`**: The path for the sandboxed directory where organisms perform file operations.
+
+You can modify the default values in `backend/config.ts`. For more advanced use cases, such as overriding configurations for different environments (e.g., staging vs. production), please refer to the official [Encore Configuration Documentation](https://encore.dev/docs/primitives/config).

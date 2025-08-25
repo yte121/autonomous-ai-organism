@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { organismDB } from '../db';
 import { llmClient } from '../../llm/client';
+import { config } from '../../config';
 import type { Organism } from '../types';
 
 // A hardcoded allowlist for safe commands that can be executed by the 'process' operation.
@@ -22,7 +23,7 @@ const ALLOWED_PROCESS_COMMANDS = new Set([
 
 // Helper function to backup a file before modification
 async function _backupCode(filePath: string): Promise<string> {
-    const backupDir = path.resolve(process.cwd(), 'organism_sandbox', 'backups');
+    const backupDir = path.resolve(process.cwd(), config.sandbox.path(), 'backups');
     await fs.mkdir(backupDir, { recursive: true });
 
     const timestamp = new Date().toISOString().replace(/:/g, '-');
@@ -57,7 +58,7 @@ export async function executeComputerOperationLogic(
     operationType: string,
     operationDetails: Record<string, any>
   ): Promise<any> {
-    const sandboxDir = path.resolve(process.cwd(), 'organism_sandbox');
+    const sandboxDir = path.resolve(process.cwd(), config.sandbox.path());
     await fs.mkdir(sandboxDir, { recursive: true }); // Ensure sandbox exists
 
     // Helper function to ensure the path is within the sandbox

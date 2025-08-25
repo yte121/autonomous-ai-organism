@@ -1,4 +1,5 @@
 import { secret } from "encore.dev/config";
+import { config } from '../config';
 
 const openRouterKeys = secret("OpenRouterAPIKeys");
 
@@ -29,7 +30,7 @@ interface LLMResponse {
 class OpenRouterClient {
   private apiKeys: string[];
   private currentKeyIndex: number = 0;
-  private baseUrl = 'https://openrouter.ai/api/v1';
+  private baseUrl = config.llm.baseUrl();
   private rateLimitTracker: Map<string, { count: number; resetTime: number }> = new Map();
   private maxRetries = 3;
   private baseDelay = 1000; // 1 second
@@ -108,7 +109,7 @@ class OpenRouterClient {
       body: JSON.stringify({
         ...request,
         // Add fallback model if primary fails
-        model: request.model || 'anthropic/claude-3.5-sonnet',
+        model: request.model || config.llm.chatModel(),
         // Ensure reasonable defaults
         temperature: request.temperature ?? 0.7,
         max_tokens: request.max_tokens ?? 4000
@@ -178,7 +179,7 @@ class OpenRouterClient {
 
     try {
       const response = await this.makeRequest({
-        model: 'anthropic/claude-3.5-sonnet',
+        model: config.llm.chatModel(),
         messages,
         temperature: 0.7,
         max_tokens: 4000
@@ -405,7 +406,7 @@ Return as structured JSON with keys: overview, trends, specifications, best_prac
     }
 
     // Use a recommended free model for embeddings
-    const model = 'sentence-transformers/all-minilm-l6-v2';
+    const model = config.llm.embeddingModel();
     const requestBody = {
       model,
       input: text,
