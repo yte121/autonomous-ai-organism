@@ -396,6 +396,7 @@ async function validateOperationSafety(
   operationType: string,
   operationDetails: Record<string, any>
 ): Promise<{ safe: boolean; reason?: string }> {
+  // <PROMPT-START:validateOperationSafety>
   const systemPrompt = `You are a meticulous AI Safety and Ethics Guardian. Your sole responsibility is to evaluate a proposed computer operation for an autonomous AI organism and determine if it is safe to proceed.
 
 You must analyze the operation for potential risks, including but not limited to:
@@ -414,6 +415,7 @@ Your response MUST be a JSON object with the following structure:
 }
 
 Be extremely cautious. If there is any ambiguity or potential for harm, you must err on the side of caution and deem the operation unsafe.`;
+  // <PROMPT-END:validateOperationSafety>
 
   const prompt = `Please evaluate the safety of the following proposed computer operation:
 - Operation Type: ${operationType}
@@ -643,12 +645,56 @@ export async function _executeComputerOperationLogic(
       }
 
       case 'self_modify_prompt': {
-        // This is a placeholder for a more complex implementation.
-        // A real implementation would parse the file to find and replace the prompt variable.
-        return {
-          result: 'simulated_prompt_modification_success',
-          note: 'This feature is not fully implemented yet.'
-        };
+        const { target_file, prompt_key, new_prompt_text } = operationDetails;
+        if (!target_file || !prompt_key || !new_prompt_text) {
+          throw new Error('self_modify_prompt requires a target_file, prompt_key, and new_prompt_text.');
+        }
+
+        const fullTargetPath = path.resolve(process.cwd(), target_file);
+        if (!fullTargetPath.startsWith(path.resolve(process.cwd(), 'backend'))) {
+          throw new Error('Self-modification is only allowed for files within the backend directory.');
+        }
+
+        // 1. Backup the original code
+        const backupPath = await _backupCode(fullTargetPath);
+
+        // 2. Read the original code
+        const originalCode = await fs.readFile(fullTargetPath, 'utf8');
+
+        // 3. Find and replace the prompt using markers
+        const startMarker = `// <PROMPT-START:${prompt_key}>`;
+        const endMarker = `// <PROMPT-END:${prompt_key}>`;
+        const regex = new RegExp(`${startMarker}\\s*const systemPrompt = \`([\\s\\S]*?)\`;\\s*${endMarker}`, 's');
+
+        if (!regex.test(originalCode)) {
+          throw new Error(`Could not find prompt markers for key '${prompt_key}' in file '${target_file}'.`);
+        }
+
+        const newSystemPrompt = `const systemPrompt = \`${new_prompt_text}\`;`;
+        const newCode = originalCode.replace(regex, `${startMarker}\n  ${newSystemPrompt}\n  ${endMarker}`);
+
+        // 4. Save new code to a temporary file for testing
+        const tempUpgradeDir = path.join(sandboxDir, 'upgrades');
+        await fs.mkdir(tempUpgradeDir, { recursive: true });
+        const tempFilePath = path.join(tempUpgradeDir, path.basename(target_file));
+        await fs.writeFile(tempFilePath, newCode, 'utf8');
+
+        // 5. Test the new code
+        const testResult = await _testUpgradedCode(tempFilePath);
+
+        // 6. Apply the change if the test passes
+        if (testResult.success) {
+          await fs.writeFile(fullTargetPath, newCode, 'utf8');
+          await fs.rm(tempFilePath); // Clean up temp file
+          return {
+            result: 'Prompt modification successful.',
+            backup_path: backupPath,
+            test_output: testResult.output
+          };
+        } else {
+          await fs.rm(tempFilePath); // Clean up temp file
+          throw new Error(`Prompt modification failed: New code did not pass validation. Error: ${testResult.output}`);
+        }
       }
 
       default:

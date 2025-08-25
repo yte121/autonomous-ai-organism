@@ -138,6 +138,7 @@ async function executeLearningSession(
   objectives: string[],
   depthLevel: string
 ): Promise<any> {
+  // <PROMPT-START:learningSession>
   const systemPrompt = `You are an advanced learning facilitator for AI organisms. Design and execute comprehensive learning sessions that enhance organism capabilities.
 
 Organism Profile:
@@ -150,6 +151,7 @@ Learning Parameters:
 - Type: ${learningType}
 - Depth Level: ${depthLevel}
 - Objectives: ${objectives.join(', ')}`;
+  // <PROMPT-END:learningSession>
 
   const prompt = `Source Data:
 ${JSON.stringify(sourceData, null, 2)}
@@ -262,6 +264,7 @@ async function performCodebaseAnalysis(
   analysisFocus: string[],
   extractionDepth: string
 ): Promise<any> {
+  // <PROMPT-START:codebaseAnalysis>
   const systemPrompt = `You are a codebase analysis expert for AI organisms. Analyze codebases to extract valuable patterns, architectures, and implementation strategies.
 
 Analysis Parameters:
@@ -269,6 +272,7 @@ Analysis Parameters:
 - Focus Areas: ${analysisFocus.join(', ')}
 - Extraction Depth: ${extractionDepth}
 - Organism Capabilities: ${organism.capabilities.join(', ')}`;
+  // <PROMPT-END:codebaseAnalysis>
 
   const prompt = `Perform comprehensive codebase analysis focusing on:
 ${analysisFocus.map(focus => `- ${focus}`).join('\n')}
@@ -373,8 +377,11 @@ async function facilitatePeerLearning(
   collaborationMode: string
 ): Promise<any> {
   // 1. Generate a learning plan and initial questions
+  // <PROMPT-START:peerLearningPlan>
+  const planSystemPrompt = "You are a learning facilitator.";
+  // <PROMPT-END:peerLearningPlan>
   const planPrompt = `You are a Socratic dialogue facilitator for an AI organism. The learner, ${learner.name}, wants to learn about: ${topics.join(', ')}. The teachers are ${teachers.map(t => t.name).join(', ')}. Create a short learning plan and generate 3 good, open-ended initial questions for the learner to ask. Return as JSON: { "learning_plan": string, "questions": string[] }`;
-  const planResponse = await llmClient.generateText(planPrompt, "You are a learning facilitator.");
+  const planResponse = await llmClient.generateText(planPrompt, planSystemPrompt);
   const plan = JSON.parse(planResponse);
   let questionsToAsk = plan.questions || [`Can you give me an overview of ${topics[0]}?`];
 
@@ -391,8 +398,11 @@ async function facilitatePeerLearning(
 
     // 3b. Teachers answer in parallel
     const answerPromises = teachers.map(teacher => {
+      // <PROMPT-START:peerLearningTeacher>
+      const teacherSystemPrompt = `You are the helpful teacher AI, ${teacher.name}.`;
+      // <PROMPT-END:peerLearningTeacher>
       const teacherPrompt = `You are the AI organism ${teacher.name}. A peer, ${learner.name}, has asked you the following question about ${topics.join(', ')}: "${currentQuestion}". Based on your expertise, provide a clear and helpful answer.`;
-      return llmClient.generateText(teacherPrompt, `You are the helpful teacher AI, ${teacher.name}.`);
+      return llmClient.generateText(teacherPrompt, teacherSystemPrompt);
     });
     const answers = await Promise.all(answerPromises);
 
@@ -405,12 +415,18 @@ async function facilitatePeerLearning(
     }
 
     // 3d. Generate a follow-up question
+    // <PROMPT-START:peerLearningLearnerFollowup>
+    const followupSystemPrompt = `You are the curious learner AI, ${learner.name}.`;
+    // <PROMPT-END:peerLearningLearnerFollowup>
     const followUpPrompt = `You are the learner AI, ${learner.name}. Based on the latest answers, what is your single most important follow-up question? The topic is ${topics.join(', ')}. Recent conversation:\n${dialogueHistory.slice(-teachers.length - 1).join('\n')}`;
-    const nextQuestion = await llmClient.generateText(followUpPrompt, `You are the curious learner AI, ${learner.name}.`);
+    const nextQuestion = await llmClient.generateText(followUpPrompt, followupSystemPrompt);
     questionsToAsk.push(nextQuestion);
   }
 
   // 4. Synthesize the dialogue into a new KnowledgeEntry
+  // <PROMPT-START:peerLearningSynthesis>
+  const synthesisSystemPrompt = "You are a Knowledge Synthesizer.";
+  // <PROMPT-END:peerLearningSynthesis>
   const synthesisPrompt = `You are a Knowledge Synthesizer. A learner AI has just completed a Socratic dialogue with several teachers. Your job is to analyze the entire transcript and distill the key learnings into a structured knowledge entry.
 
 Learning Topics: ${topics.join(', ')}
@@ -420,7 +436,7 @@ ${dialogueHistory.join('\n')}
 
 Based on the transcript, extract the most important information. Return a single JSON object with keys: "key_learnings" (an array of strings), "unanswered_questions" (an array of strings), and "confidence_score" (a number between 0 and 1).`;
 
-  const synthesisResponse = await llmClient.generateText(synthesisPrompt, "You are a Knowledge Synthesizer.");
+  const synthesisResponse = await llmClient.generateText(synthesisPrompt, synthesisSystemPrompt);
   const synthesizedKnowledge = JSON.parse(synthesisResponse);
 
   // 5. Integrate the new knowledge

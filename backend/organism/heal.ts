@@ -89,6 +89,7 @@ async function applyHealing(
   suggested_solution: string;
   new_capabilities: string[];
 }> {
+  // <PROMPT-START:applyHealing>
   const systemPrompt = `You are an AI Diagnostic and Repair System. Your purpose is to analyze an error reported by an AI organism and propose a robust solution.
 
 You must analyze the error context, diagnose the root cause, and suggest a resolution. The resolution should include both a general strategy and a list of specific new capabilities the organism should develop to prevent this error in the future.
@@ -101,6 +102,7 @@ You MUST return your response as a single JSON object with the following structu
   "suggested_solution": string, // A clear, natural language description of the proposed solution.
   "new_capabilities": string[] // An array of strings for new capabilities.
 }`;
+  // <PROMPT-END:applyHealing>
 
   const prompt = `An AI organism has encountered an error. Please diagnose the issue and propose a solution.
 

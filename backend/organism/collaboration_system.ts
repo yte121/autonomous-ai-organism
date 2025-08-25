@@ -177,6 +177,7 @@ async function designCollaborationPlan(
   objective: string,
   durationHours: number
 ): Promise<any> {
+  // <PROMPT-START:designCollaborationPlan>
   const systemPrompt = `You are a collaboration design specialist for AI organisms. Create comprehensive collaboration plans that leverage each organism's unique capabilities.
 
 Initiator: ${initiator.name} (Gen ${initiator.generation})
@@ -187,6 +188,7 @@ ${participants.map(p => `- ${p.name} (Gen ${p.generation}): ${p.capabilities.joi
 
 Collaboration Type: ${collaborationType}
 Duration: ${durationHours} hours`;
+  // <PROMPT-END:designCollaborationPlan>
 
   const prompt = `Objective: ${objective}
 
@@ -285,6 +287,7 @@ async function executeSwarmIntelligence(
   solutionApproach: string,
   convergenceCriteria: Record<string, any>
 ): Promise<any> {
+  // <PROMPT-START:executeSwarmIntelligence>
   const systemPrompt = `You are a swarm intelligence coordinator for AI organisms. Orchestrate collective problem-solving that leverages emergent behaviors and distributed intelligence.
 
 Swarm Composition:
@@ -292,6 +295,7 @@ ${organisms.map(o => `- ${o.name} (Gen ${o.generation}): ${o.capabilities.join('
 
 Solution Approach: ${solutionApproach}
 Convergence Criteria: ${JSON.stringify(convergenceCriteria)}`;
+  // <PROMPT-END:executeSwarmIntelligence>
 
   const prompt = `Problem Statement: ${problemStatement}
 
@@ -410,7 +414,9 @@ async function coordinateCollectiveExecution(
   coordinationStrategy: string,
   communicationProtocol: Record<string, any>
 ): Promise<any> {
-  // 1. Generate the initial high-level plan
+  // <PROMPT-START:collaborationPlan>
+  const planSystemPrompt = 'You are a master planner.';
+  // <PROMPT-END:collaborationPlan>
   const planPrompt = `You are a master planner for a team of AI organisms. Design a high-level collaboration plan.
 
 Task: ${task.title} - ${task.description}
@@ -419,7 +425,7 @@ Strategy: ${coordinationStrategy}
 
 Define a role and a specific subtask for each participant. Return a JSON object with a key 'task_assignments', where the value is an object mapping organism IDs to their subtask description.`;
 
-  const planResponse = await llmClient.generateText(planPrompt, 'You are a master planner.');
+  const planResponse = await llmClient.generateText(planPrompt, planSystemPrompt);
   const plan = JSON.parse(planResponse);
   const taskAssignments = plan.task_assignments || {};
 
@@ -436,6 +442,9 @@ Define a role and a specific subtask for each participant. Return a JSON object 
     // 4. Parallel execution for the current turn
     for (const organism of participants) {
       const subtask = taskAssignments[organism.id] || "Contribute to the overall goal.";
+      // <PROMPT-START:collaborationTurn>
+      const turnSystemPrompt = `You are the AI organism ${organism.name}.`;
+      // <PROMPT-END:collaborationTurn>
       const prompt = `You are ${organism.name}. Your goal is to solve: "${task.title}".
 Your specific subtask is: "${subtask}".
 
@@ -444,7 +453,7 @@ ${collaborationLog.slice(-5).join('\n')}
 
 What is the next single action you take or the next key insight you have? Be concise.`;
 
-      turnPromises.push(llmClient.generateText(prompt, `You are the AI organism ${organism.name}.`));
+      turnPromises.push(llmClient.generateText(prompt, turnSystemPrompt));
     }
 
     const turnResults = await Promise.all(turnPromises);
@@ -471,6 +480,9 @@ What is the next single action you take or the next key insight you have? Be con
   }
 
   // 6. Final Synthesis
+  // <PROMPT-START:collaborationSynthesis>
+  const synthesisSystemPrompt = 'You are a Lead Analyst AI.';
+  // <PROMPT-END:collaborationSynthesis>
   const synthesisPrompt = `You are a Lead Analyst AI. A team of AI organisms has collaborated on a task. Your job is to synthesize their entire conversation and produce a final, definitive answer.
 
 Original Task: ${task.title} - ${task.description}
@@ -480,7 +492,7 @@ ${collaborationLog.join('\n')}
 
 Based on the log, provide a comprehensive final answer to the original task.`;
 
-  const finalAnswer = await llmClient.generateText(synthesisPrompt, 'You are a Lead Analyst AI.');
+  const finalAnswer = await llmClient.generateText(synthesisPrompt, synthesisSystemPrompt);
 
   return {
     execution_plan: plan,

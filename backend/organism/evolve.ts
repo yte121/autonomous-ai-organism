@@ -64,6 +64,7 @@ export async function _evolveLogic(req: EvolutionRequest): Promise<Organism> {
 }
 
 async function generateEvolvedCapabilities(organism: Organism, improvements: string[]): Promise<{ capabilities: string[], reasoning: string }> {
+  // <PROMPT-START:generateEvolvedCapabilities>
   const systemPrompt = `You are an AI Evolution Strategist. Your task is to analyze an AI organism's profile and propose a set of new, specific, and creative capabilities that will enhance its performance and address its weaknesses.
 
 The new capabilities should be short, descriptive strings in 'snake_case' format (e.g., 'advanced_data_caching', 'proactive_error_simulation').
@@ -71,6 +72,7 @@ The new capabilities should be short, descriptive strings in 'snake_case' format
 You MUST return your response as a single JSON object with two keys:
 1. "new_capabilities": An array of strings representing the new capabilities.
 2. "reasoning": A string explaining why you chose these specific capabilities based on the organism's profile.`;
+  // <PROMPT-END:generateEvolvedCapabilities>
 
   const prompt = `Please analyze the following AI organism and propose its next evolution.
 
