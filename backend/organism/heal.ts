@@ -1,5 +1,6 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
+import { llmClient } from "../llm/client";
 import type { Organism } from "./types";
 
 interface HealRequest {
@@ -27,15 +28,41 @@ export const heal = api<HealRequest, Organism>(
     `;
 
     // Analyze error and apply healing
-    const healingResult = await applyHealing(organism, req.error_context, req.recovery_strategy);
+    const healingPlan = await applyHealing(organism, req.error_context, req.recovery_strategy);
     
-    // Update organism with healing results
+    // --- Apply the healing plan ---
+
+    // 1. Update capabilities
+    const updatedCapabilities = new Set([...organism.capabilities, ...healingPlan.new_capabilities, 'self_healing']);
+
+    // 2. Update memory
+    const updatedMemory = { ...organism.memory };
+    updatedMemory.error_history = updatedMemory.error_history || [];
+    updatedMemory.error_history.push({
+      timestamp: new Date(),
+      error_context: req.error_context,
+      recovery_strategy: req.recovery_strategy || 'auto_heal',
+      resolution: {
+        diagnosis: healingPlan.diagnosis,
+        solution: healingPlan.suggested_solution,
+        added_capabilities: healingPlan.new_capabilities
+      }
+    });
+
+    // 3. Update performance metrics
+    const updatedMetrics = { ...organism.performance_metrics };
+    const totalErrors = updatedMemory.error_history.length;
+    const recoveredErrors = updatedMemory.error_history.filter((e: any) => e.resolution).length;
+    updatedMetrics.error_recovery_rate = totalErrors > 0 ? recoveredErrors / totalErrors : 1;
+
+
+    // 4. Update organism in the database
     const healedOrganism = await organismDB.queryRow<Organism>`
       UPDATE organisms SET 
         status = 'active',
-        memory = ${JSON.stringify(healingResult.updatedMemory)},
-        performance_metrics = ${JSON.stringify(healingResult.updatedMetrics)},
-        capabilities = ${JSON.stringify(healingResult.updatedCapabilities)},
+        memory = ${JSON.stringify(updatedMemory)},
+        performance_metrics = ${JSON.stringify(updatedMetrics)},
+        capabilities = ${JSON.stringify(Array.from(updatedCapabilities))},
         updated_at = NOW(),
         last_active = NOW()
       WHERE id = ${req.organism_id}
@@ -46,8 +73,8 @@ export const heal = api<HealRequest, Organism>(
       throw new Error("Failed to heal organism");
     }
 
-    // Log healing event
-    await logHealingEvent(req.organism_id, req.error_context, healingResult);
+    // 5. Log healing event for broader knowledge base
+    await logHealingEvent(req.organism_id, req.error_context, healingPlan);
 
     return healedOrganism;
   }
@@ -58,49 +85,60 @@ async function applyHealing(
   errorContext: Record<string, any>, 
   strategy?: string
 ): Promise<{
-  updatedMemory: Record<string, any>;
-  updatedMetrics: any;
-  updatedCapabilities: string[];
+  diagnosis: string;
+  suggested_solution: string;
+  new_capabilities: string[];
 }> {
-  const updatedMemory = { ...organism.memory };
-  const updatedMetrics = { ...organism.performance_metrics };
-  const updatedCapabilities = [...organism.capabilities];
+  const systemPrompt = `You are an AI Diagnostic and Repair System. Your purpose is to analyze an error reported by an AI organism and propose a robust solution.
 
-  // Add error recovery to memory
-  updatedMemory.error_history = updatedMemory.error_history || [];
-  updatedMemory.error_history.push({
-    timestamp: new Date(),
-    error_context: errorContext,
-    recovery_strategy: strategy || 'auto_heal',
-    resolution: 'healed'
-  });
+You must analyze the error context, diagnose the root cause, and suggest a resolution. The resolution should include both a general strategy and a list of specific new capabilities the organism should develop to prevent this error in the future.
 
-  // Update error recovery rate
-  const totalErrors = updatedMemory.error_history.length;
-  const recoveredErrors = updatedMemory.error_history.filter((e: any) => e.resolution === 'healed').length;
-  updatedMetrics.error_recovery_rate = recoveredErrors / totalErrors;
+The new capabilities should be short, descriptive strings in 'snake_case' format (e.g., 'http_request_retries', 'deadlock_detection_protocol').
 
-  // Add self-healing capability if not present
-  if (!updatedCapabilities.includes('self_healing')) {
-    updatedCapabilities.push('self_healing');
+You MUST return your response as a single JSON object with the following structure:
+{
+  "diagnosis": string, // A detailed analysis of the root cause of the error.
+  "suggested_solution": string, // A clear, natural language description of the proposed solution.
+  "new_capabilities": string[] // An array of strings for new capabilities.
+}`;
+
+  const prompt = `An AI organism has encountered an error. Please diagnose the issue and propose a solution.
+
+**Organism Profile:**
+- **Name:** ${organism.name}
+- **Generation:** ${organism.generation}
+- **Current Capabilities:** ${JSON.stringify(organism.capabilities)}
+- **Performance Metrics:** ${JSON.stringify(organism.performance_metrics)}
+
+**Error Context:**
+${JSON.stringify(errorContext, null, 2)}
+
+**Requested Recovery Strategy:** ${strategy || 'auto_heal'}
+
+Provide your diagnosis and proposed solution in the required JSON format.`;
+
+  try {
+    const response = await llmClient.generateText(prompt, systemPrompt);
+    const healingPlan = JSON.parse(response);
+
+    if (
+      !healingPlan.diagnosis ||
+      !healingPlan.suggested_solution ||
+      !Array.isArray(healingPlan.new_capabilities)
+    ) {
+      throw new Error("LLM response for healing is malformed.");
+    }
+
+    return healingPlan;
+  } catch (error) {
+    console.error("Failed to generate healing plan from LLM:", error);
+    // Fallback to a simple, generic healing response
+    return {
+      diagnosis: "LLM-based diagnosis failed. The root cause could not be determined.",
+      suggested_solution: "Apply generic error handling improvements and monitor performance.",
+      new_capabilities: ["enhanced_error_logging", `generic_recovery_from_${errorContext.error_type || 'unknown_error'}`]
+    };
   }
-
-  // Add error-specific recovery capabilities
-  if (errorContext.error_type === 'memory_overflow') {
-    updatedCapabilities.push('memory_optimization');
-  }
-  if (errorContext.error_type === 'network_failure') {
-    updatedCapabilities.push('network_resilience');
-  }
-  if (errorContext.error_type === 'computation_error') {
-    updatedCapabilities.push('computation_validation');
-  }
-
-  return {
-    updatedMemory,
-    updatedMetrics,
-    updatedCapabilities
-  };
 }
 
 async function logHealingEvent(
