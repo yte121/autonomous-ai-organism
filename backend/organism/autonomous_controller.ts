@@ -441,6 +441,38 @@ Is this operation safe? Provide your response in the required JSON format.`;
   }
 }
 
+// Helper function to backup a file before modification
+async function _backupCode(filePath: string): Promise<string> {
+  const backupDir = path.resolve(process.cwd(), 'organism_sandbox', 'backups');
+  await fs.mkdir(backupDir, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/:/g, '-');
+  const backupPath = path.join(backupDir, `${path.basename(filePath)}.${timestamp}.bak`);
+
+  const content = await fs.readFile(filePath, 'utf8');
+  await fs.writeFile(backupPath, content, 'utf8');
+
+  return backupPath;
+}
+
+// Helper function to test new code using the TypeScript compiler
+async function _testUpgradedCode(filePath: string): Promise<{ success: boolean; output: string }> {
+  try {
+    // We use --noEmit to only perform type-checking without generating JS files.
+    // --strict enables all strict type-checking options.
+    const result = await _executeComputerOperationLogic('process', {
+      command: `npx tsc --noEmit --strict ${filePath}`
+    });
+    // If tsc completes without error, stdout and stderr will be empty.
+    return { success: true, output: 'Compilation successful.' };
+  } catch (error: any) {
+    // The 'exec' promise rejects if the command returns a non-zero exit code, which tsc does on error.
+    const errorMessage = error.stderr || error.stdout || error.message;
+    console.error('Code validation failed:', errorMessage);
+    return { success: false, output: errorMessage };
+  }
+}
+
 export async function _executeComputerOperationLogic(
   operationType: string,
   operationDetails: Record<string, any>
@@ -563,6 +595,61 @@ export async function _executeComputerOperationLogic(
           result: 'simulated_automation_success',
           timestamp: new Date()
         };
+
+      case 'self_modify_code': {
+        const { target_file, change_description } = operationDetails;
+        if (!target_file || !change_description) {
+          throw new Error('self_modify_code requires a target_file and a change_description.');
+        }
+
+        const fullTargetPath = path.resolve(process.cwd(), target_file);
+        // Security check: ensure we are only modifying files within the backend directory
+        if (!fullTargetPath.startsWith(path.resolve(process.cwd(), 'backend'))) {
+          throw new Error('Self-modification is only allowed for files within the backend directory.');
+        }
+
+        // 1. Backup the original code
+        const backupPath = await _backupCode(fullTargetPath);
+
+        // 2. Read the original code
+        const originalCode = await fs.readFile(fullTargetPath, 'utf8');
+
+        // 3. Use LLM to generate the upgraded code
+        const upgradePrompt = `You are an expert TypeScript engineer. Rewrite the following code to incorporate this change: "${change_description}". Return ONLY the complete, raw, updated code for the entire file. Do not include any explanations or markdown formatting.`;
+        const newCode = await llmClient.generateText(originalCode, upgradePrompt);
+
+        // 4. Save new code to a temporary file for testing
+        const tempUpgradeDir = path.join(sandboxDir, 'upgrades');
+        await fs.mkdir(tempUpgradeDir, { recursive: true });
+        const tempFilePath = path.join(tempUpgradeDir, path.basename(target_file));
+        await fs.writeFile(tempFilePath, newCode, 'utf8');
+
+        // 5. Test the new code
+        const testResult = await _testUpgradedCode(tempFilePath);
+
+        // 6. Apply the change if the test passes
+        if (testResult.success) {
+          await fs.writeFile(fullTargetPath, newCode, 'utf8');
+          await fs.rm(tempFilePath); // Clean up temp file
+          return {
+            result: 'Self-modification successful.',
+            backup_path: backupPath,
+            test_output: testResult.output
+          };
+        } else {
+          await fs.rm(tempFilePath); // Clean up temp file
+          throw new Error(`Self-modification failed: New code did not pass validation. Error: ${testResult.output}`);
+        }
+      }
+
+      case 'self_modify_prompt': {
+        // This is a placeholder for a more complex implementation.
+        // A real implementation would parse the file to find and replace the prompt variable.
+        return {
+          result: 'simulated_prompt_modification_success',
+          note: 'This feature is not fully implemented yet.'
+        };
+      }
 
       default:
         throw new Error(`Unsupported operation type: ${operationType}`);

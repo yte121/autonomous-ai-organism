@@ -20,6 +20,7 @@ interface UpgradeResponse {
 
 import { _learnLogic, LearningRequest } from "../learn";
 import { _evolveLogic, EvolutionRequest } from "../evolve";
+import { _executeComputerOperationLogic } from "./autonomous_controller";
 
 // Enables organisms to upgrade themselves safely and efficiently.
 export const upgradeOrganism = api<UpgradeRequest, { result: any }>(
@@ -51,7 +52,7 @@ export const upgradeOrganism = api<UpgradeRequest, { result: any }>(
         result = await _learnLogic(learnReq);
         break;
 
-      case 'capability':
+      case 'capability': {
         const evolveReq: EvolutionRequest = {
           organism_id: req.organism_id,
           evolution_triggers: plan.parameters.evolution_triggers || ['self_improvement_directive'],
@@ -59,11 +60,20 @@ export const upgradeOrganism = api<UpgradeRequest, { result: any }>(
         };
         result = await _evolveLogic(evolveReq);
         break;
+      }
+
+      case 'architecture':
+      case 'performance': {
+        result = await _executeComputerOperationLogic('self_modify_code', {
+          target_file: plan.parameters.target_file,
+          change_description: plan.parameters.change_description,
+        });
+        break;
+      }
 
       default:
-        // For now, other types are just planned but not executed
         result = {
-          message: `Upgrade type '${plan.upgrade_type}' planned but not executed.`,
+          message: `Unknown or unsupported upgrade type: '${plan.upgrade_type}'`,
           plan: plan
         };
         break;
@@ -197,18 +207,28 @@ Your response MUST be a JSON object with the following structure:
 {
   "upgrade_type": "knowledge" | "capability" | "performance" | "architecture",
   "parameters": {
+    // for all types
+    "reasoning": string,
+
     // if knowledge
-    "source_type": "internet" | "codebase",
-    "learning_objectives": string[],
+    "source_type": "internet" | "codebase" | null,
+    "learning_objectives": string[] | null,
     "source_url": string | null,
+
     // if capability
-    "target_improvements": string[],
-    "evolution_triggers": string[]
-  },
-  "reasoning": string
+    "target_improvements": string[] | null,
+    "evolution_triggers": string[] | null,
+
+    // if architecture or performance (code modification)
+    "target_file": string | null,
+    "change_description": string | null
+  }
 }
 
-Analyze the organism's profile and decide on the most appropriate upgrade_type and parameters. If the requested type is 'knowledge', the top learning_objective should be to learn about the 'performance' or 'architecture' if those were requested.`;
+Analyze the organism's profile and decide on the most appropriate upgrade_type and parameters.
+- For 'knowledge', provide learning objectives.
+- For 'capability', provide target improvements.
+- For 'architecture' or 'performance', provide a target_file (e.g., 'backend/organism/evolve.ts') and a detailed change_description.`;
 
   const prompt = `**Organism Profile:**
 - Name: ${organism.name}
@@ -219,7 +239,7 @@ Analyze the organism's profile and decide on the most appropriate upgrade_type a
 - Type: ${requestedType}
 - Target Metrics: ${JSON.stringify(targetMetrics || {})}
 
-Based on the profile and request, generate a precise, actionable upgrade plan in the required JSON format. For a 'knowledge' upgrade, define a clear learning objective. For a 'capability' upgrade, define specific target improvements.`;
+Based on the profile and request, generate a precise, actionable upgrade plan in the required JSON format.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
   try {
