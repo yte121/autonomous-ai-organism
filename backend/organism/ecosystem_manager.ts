@@ -1,7 +1,9 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
-import type { Organism, Task } from "./types";
+import { _evolveLogic } from "./evolve";
+import { _executeComputerOperationLogic } from "./autonomous_controller";
+import type { Organism, Task, EvolutionRequest } from "./types";
 
 interface EcosystemHealthRequest {
   include_metrics?: boolean;
@@ -13,7 +15,7 @@ interface EcosystemHealthResponse {
   organism_distribution: Record<string, number>;
   performance_trends: Record<string, number>;
   resource_utilization: Record<string, number>;
-  recommendations: string[];
+  recommendations: any[];
   critical_issues: string[];
 }
 
@@ -31,7 +33,7 @@ export const getEcosystemHealth = api<EcosystemHealthRequest, EcosystemHealthRes
 
     const healthAnalysis = await analyzeEcosystemHealth(organisms, tasks);
     
-    let recommendations: string[] = [];
+    let recommendations: any[] = [];
     if (req.include_recommendations) {
       recommendations = await generateEcosystemRecommendations(healthAnalysis);
     }
@@ -220,41 +222,44 @@ async function analyzeEcosystemHealth(
   };
 }
 
-async function generateEcosystemRecommendations(healthAnalysis: any): Promise<string[]> {
-  const systemPrompt = 'You are an ecosystem optimization specialist for AI organisms. Generate actionable recommendations to improve ecosystem health and performance.';
+async function generateEcosystemRecommendations(healthAnalysis: any): Promise<any[]> {
+  const systemPrompt = `You are an ecosystem optimization specialist for AI organisms. Generate actionable, structured recommendations to improve ecosystem health.
+
+Return a JSON array of action objects. Each object must have an 'action' key and a 'parameters' key.
+Valid actions are: 'optimize_ecosystem', 'guide_ecosystem_evolution', 'allocate_resources', 'create_organism'.
+Example: [{ "action": "create_organism", "parameters": { "count": 2, "purpose": "Address low organism count" } }]`;
 
   const prompt = `Ecosystem Health Analysis:
 ${JSON.stringify(healthAnalysis, null, 2)}
 
-Based on this analysis, provide specific, actionable recommendations to:
-1. Improve overall ecosystem health
-2. Address critical issues
-3. Optimize resource utilization
-4. Enhance organism performance
-5. Maintain ecosystem balance
-
-Return as a JSON array of recommendation strings.`;
+Based on this analysis, provide specific, actionable recommendations.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
 
   try {
-    return JSON.parse(response);
-  } catch {
-    const recommendations: string[] = [];
-    
-    if (healthAnalysis.overall_health_score < 0.7) {
-      recommendations.push('Implement ecosystem-wide performance optimization');
+    const recommendations = JSON.parse(response);
+    // Basic validation
+    if (Array.isArray(recommendations) && recommendations.every(r => r.action && r.parameters)) {
+      return recommendations;
     }
-    
+    throw new Error("Invalid recommendation format from LLM.");
+  } catch (error) {
+    console.error("Failed to generate structured ecosystem recommendations:", error);
+    // Fallback to generating simple text-based recommendations if structured generation fails
+    const fallbackRecommendations: any[] = [];
     if (healthAnalysis.critical_issues.length > 0) {
-      recommendations.push('Address critical issues: ' + healthAnalysis.critical_issues.join(', '));
+      fallbackRecommendations.push({
+        action: 'manual_review',
+        parameters: { issues: healthAnalysis.critical_issues }
+      });
     }
-    
-    if (healthAnalysis.resource_utilization.active_organism_count < 5) {
-      recommendations.push('Create additional organisms to improve ecosystem diversity');
+    if (healthAnalysis.overall_health_score < 0.7) {
+      fallbackRecommendations.push({
+        action: 'optimize_ecosystem',
+        parameters: { optimization_goals: ['Improve overall health score'] }
+      });
     }
-    
-    return recommendations;
+    return fallbackRecommendations;
   }
 }
 
@@ -264,33 +269,29 @@ async function performEcosystemOptimization(
   constraints?: Record<string, any>,
   simulationMode: boolean = false
 ): Promise<any> {
-  const systemPrompt = `You are an ecosystem optimization engine for AI organisms. Design comprehensive optimization strategies that improve ecosystem performance while maintaining stability.
+  const systemPrompt = `You are an ecosystem optimization engine for AI organisms. Design concrete, actionable optimization strategies.
 
 Current Ecosystem:
 - Active Organisms: ${organisms.length}
-- Average Generation: ${organisms.reduce((sum, o) => sum + o.generation, 0) / organisms.length}
 - Optimization Goals: ${optimizationGoals.join(', ')}
-- Simulation Mode: ${simulationMode}`;
+- Simulation Mode: ${simulationMode}
+
+Return a JSON object with:
+- optimization_strategy: A high-level description of your plan.
+- organism_modifications: An object where each key is an organism_id. The value is an array of action objects.
+  - Each action object must have an 'action' key (e.g., 'create_capability', 'self_modify_code') and other necessary parameters.
+  - Example: { "organism_id_1": [{ "action": "create_capability", "name": "new_skill", "description": "A new skill to do X." }] }
+- implementation_steps: A text description of the execution plan.`;
 
   const prompt = `Organisms Overview:
-${organisms.map(o => `- ${o.name} (Gen ${o.generation}): ${o.capabilities.join(', ')}`).join('\n')}
+${organisms.map(o => `- ${o.name} (ID: ${o.id}, Gen: ${o.generation}): ${o.capabilities.join(', ')}`).join('\n')}
 
 Constraints: ${JSON.stringify(constraints || {})}
 
-Design optimization strategy that:
-1. Achieves the specified optimization goals
-2. Respects all constraints
-3. Maintains ecosystem stability
-4. Improves overall performance
-5. Preserves organism diversity
-
-Return JSON with:
-- optimization_strategy: Overall approach
-- organism_modifications: Changes for each organism
-- resource_reallocation: Resource distribution changes
-- performance_predictions: Expected improvements
-- risk_assessment: Potential risks and mitigation
-- implementation_steps: Detailed execution plan`;
+Design an optimization strategy that achieves the goals by defining specific modifications for organisms.
+Focus on creating new capabilities or modifying existing code.
+For 'self_modify_code', provide a 'target_file' and a 'change_description'.
+For 'create_capability', provide a 'name' and a 'description'.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
 
@@ -301,46 +302,57 @@ Return JSON with:
       optimization_goals: optimizationGoals,
       ...optimizationResult
     };
-  } catch {
+  } catch (error) {
+    console.error("Failed to parse optimization plan from LLM:", error);
     return {
       simulation_mode: simulationMode,
       optimization_goals: optimizationGoals,
-      optimization_strategy: 'Balanced ecosystem optimization',
+      optimization_strategy: 'Failed to generate a valid plan.',
       organism_modifications: {},
-      resource_reallocation: {},
-      performance_predictions: { overall_improvement: 0.1 },
-      risk_assessment: { risk_level: 'low' },
-      implementation_steps: ['Gradual optimization rollout']
     };
   }
 }
 
-async function applyOptimizationChanges(optimizationResult: any): Promise<void> {
-  // Apply organism modifications
-  if (optimizationResult.organism_modifications) {
-    for (const [organismId, modifications] of Object.entries(optimizationResult.organism_modifications)) {
-      const organism = await organismDB.queryRow<Organism>`
-        SELECT * FROM organisms WHERE id = ${organismId}
-      `;
+async function applyOptimizationChanges(optimizationResult: any): Promise<any> {
+  const results = [];
+  if (!optimizationResult.organism_modifications) {
+    return { summary: "No organism modifications specified in the plan." };
+  }
 
-      if (organism && modifications) {
-        const updatedMemory = { ...organism.memory };
-        updatedMemory.ecosystem_optimizations = updatedMemory.ecosystem_optimizations || [];
-        updatedMemory.ecosystem_optimizations.push({
-          timestamp: new Date(),
-          modifications: modifications,
-          optimization_goals: optimizationResult.optimization_goals
-        });
+  for (const [organismId, modifications] of Object.entries(optimizationResult.organism_modifications)) {
+    if (!Array.isArray(modifications)) continue;
 
-        await organismDB.exec`
-          UPDATE organisms SET 
-            memory = ${JSON.stringify(updatedMemory)},
-            updated_at = NOW()
-          WHERE id = ${organismId}
-        `;
+    for (const modification of modifications) {
+      try {
+        let operationResult;
+        switch (modification.action) {
+          case 'create_capability':
+            operationResult = await _executeComputerOperationLogic(organismId, 'create_capability', {
+              name: modification.name,
+              description: modification.description,
+            });
+            break;
+
+          case 'self_modify_code':
+            operationResult = await _executeComputerOperationLogic(organismId, 'self_modify_code', {
+              target_file: modification.target_file,
+              change_description: modification.change_description,
+            });
+            break;
+
+          default:
+            console.warn(`Unsupported modification action: ${modification.action}`);
+            continue;
+        }
+        results.push({ organismId, action: modification.action, status: 'success', result: operationResult });
+      } catch (error) {
+        console.error(`Failed to apply optimization for organism ${organismId}:`, error);
+        results.push({ organismId, action: modification.action, status: 'failed', error: error instanceof Error ? error.message : String(error) });
       }
     }
   }
+
+  const summary = `Applied ${results.length} modifications. Success: ${results.filter(r => r.status === 'success').length}, Failed: ${results.filter(r => r.status === 'failed').length}.`;
 
   // Log optimization event
   await organismDB.exec`
@@ -349,13 +361,17 @@ async function applyOptimizationChanges(optimizationResult: any): Promise<void> 
       ${null},
       'ecosystem_optimization',
       ${JSON.stringify({
-        optimization_result: optimizationResult,
+        optimization_plan: optimizationResult,
+        execution_results: results,
+        summary,
         applied_at: new Date()
       })},
       'ecosystem_manager',
       0.9
     )
   `;
+
+  return { summary, results };
 }
 
 async function calculateResourceAllocation(
@@ -364,39 +380,30 @@ async function calculateResourceAllocation(
   resourceTypes: string[],
   totalResources: Record<string, number>
 ): Promise<any> {
-  const systemPrompt = `You are a resource allocation optimizer for AI organism ecosystems. Design fair and efficient resource distribution strategies.
+  const systemPrompt = `You are a resource allocation optimizer for AI organism ecosystems. Design a fair and efficient resource distribution strategy.
 
 Allocation Strategy: ${allocationStrategy}
-Resource Types: ${resourceTypes.join(', ')}
 Total Resources: ${JSON.stringify(totalResources)}
-Organism Count: ${organisms.length}`;
+Organism Count: ${organisms.length}
+
+Return a JSON object with a single key: "allocation_plan".
+The value should be an object where each key is an organism_id and the value is an object of allocated resources.
+Example: { "allocation_plan": { "organism_id_1": { "cpu": 50, "memory": 1024 } } }`;
 
   const prompt = `Organisms:
-${organisms.map(o => `- ${o.name} (Gen ${o.generation}): Performance ${o.performance_metrics.success_rate.toFixed(2)}, Tasks ${o.performance_metrics.tasks_completed}`).join('\n')}
+${organisms.map(o => `- ID: ${o.id}, Name: ${o.name}, Performance: ${o.performance_metrics.success_rate.toFixed(2)}`).join('\n')}
 
-Calculate optimal resource allocation using ${allocationStrategy} strategy for:
-${resourceTypes.map(type => `- ${type}: ${totalResources[type]} units`).join('\n')}
-
-Consider:
-1. Organism performance and potential
-2. Current resource needs
-3. Future growth requirements
-4. Ecosystem balance
-5. Fairness and efficiency
-
-Return JSON with:
-- allocation_plan: Resource distribution per organism
-- allocation_rationale: Reasoning for allocations
-- expected_outcomes: Predicted results
-- monitoring_metrics: How to track success
-- adjustment_triggers: When to reallocate`;
+Calculate the optimal resource allocation for these organisms using the '${allocationStrategy}' strategy.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
 
   try {
-    return JSON.parse(response);
-  } catch {
-    // Fallback equal allocation
+    const plan = JSON.parse(response);
+    if (!plan.allocation_plan) throw new Error("Invalid plan format from LLM.");
+    return plan;
+  } catch (error) {
+    console.error("Failed to parse resource allocation plan from LLM:", error);
+    // Fallback to equal allocation
     const equalShare = organisms.length > 0 ? 1 / organisms.length : 0;
     const allocationPlan = organisms.reduce((plan, organism) => {
       plan[organism.id] = resourceTypes.reduce((resources, type) => {
@@ -406,41 +413,33 @@ Return JSON with:
       return plan;
     }, {} as Record<string, Record<string, number>>);
 
-    return {
-      allocation_plan: allocationPlan,
-      allocation_rationale: 'Equal distribution among all organisms',
-      expected_outcomes: ['Balanced resource utilization'],
-      monitoring_metrics: ['Resource usage efficiency'],
-      adjustment_triggers: ['Performance changes', 'New organisms']
-    };
+    return { allocation_plan: allocationPlan };
   }
 }
 
-async function applyResourceAllocation(allocationResult: any): Promise<void> {
-  // Update organism memories with resource allocation
-  if (allocationResult.allocation_plan) {
-    for (const [organismId, allocation] of Object.entries(allocationResult.allocation_plan)) {
-      const organism = await organismDB.queryRow<Organism>`
-        SELECT * FROM organisms WHERE id = ${organismId}
+async function applyResourceAllocation(allocationResult: any): Promise<any> {
+  if (!allocationResult.allocation_plan) {
+    return { summary: "No allocation plan provided." };
+  }
+
+  const results = [];
+  for (const [organismId, allocation] of Object.entries(allocationResult.allocation_plan)) {
+    try {
+      await organismDB.exec`
+        UPDATE organisms
+        SET resources = ${JSON.stringify(allocation)}, updated_at = NOW()
+        WHERE id = ${organismId}
       `;
-
-      if (organism) {
-        const updatedMemory = { ...organism.memory };
-        updatedMemory.resource_allocation = {
-          allocation: allocation,
-          allocated_at: new Date(),
-          allocation_strategy: allocationResult.allocation_rationale
-        };
-
-        await organismDB.exec`
-          UPDATE organisms SET 
-            memory = ${JSON.stringify(updatedMemory)},
-            updated_at = NOW()
-          WHERE id = ${organismId}
-        `;
-      }
+      results.push({ organismId, status: 'success', allocated: allocation });
+    } catch (error) {
+      console.error(`Failed to allocate resources for organism ${organismId}:`, error);
+      results.push({ organismId, status: 'failed', error: error instanceof Error ? error.message : String(error) });
     }
   }
+
+  const summary = `Applied resource allocation to ${results.length} organisms. Success: ${results.filter(r => r.status === 'success').length}, Failed: ${results.filter(r => r.status === 'failed').length}.`;
+
+  return { summary, results };
 }
 
 async function orchestrateEcosystemEvolution(
@@ -454,39 +453,61 @@ async function orchestrateEcosystemEvolution(
 Evolution Pressure: ${evolutionPressure.join(', ')}
 Selection Criteria: ${JSON.stringify(selectionCriteria)}
 Mutation Rate: ${mutationRate}
-Population Size: ${organisms.length}`;
-
-  const prompt = `Current Population:
-${organisms.map(o => `- ${o.name} (Gen ${o.generation}): Fitness ${o.performance_metrics.success_rate.toFixed(2)}`).join('\n')}
-
-Orchestrate ecosystem evolution by:
-1. Evaluating organism fitness based on selection criteria
-2. Identifying candidates for evolution/replication
-3. Determining beneficial mutations
-4. Planning generational transitions
-5. Maintaining genetic diversity
+Population Size: ${organisms.length}
 
 Return JSON with:
 - evolution_plan: Overall evolution strategy
-- fitness_rankings: Organism fitness scores
-- evolution_candidates: Organisms selected for evolution
-- mutation_strategies: Beneficial mutations to apply
-- diversity_preservation: How to maintain variety
-- generational_timeline: Evolution schedule`;
+- fitness_rankings: Organism fitness scores (a Record<organism_id, score>)
+- evolution_candidates: An array of organism_ids selected for evolution
+- mutation_strategies: An array of beneficial mutation descriptions (strings)
+- diversity_preservation: A string describing how to maintain variety
+- generational_timeline: A string describing the evolution schedule`;
+
+  const prompt = `Current Population:
+${organisms.map(o => `- ${o.name} (ID: ${o.id}, Gen: ${o.generation}): Fitness ${o.performance_metrics.success_rate.toFixed(2)}`).join('\n')}
+
+Orchestrate ecosystem evolution by:
+1. Evaluating organism fitness based on selection criteria.
+2. Identifying candidates for evolution/replication.
+3. Determining beneficial mutations.
+4. Planning generational transitions.
+5. Maintaining genetic diversity.`;
 
   const response = await llmClient.generateText(prompt, systemPrompt);
 
   try {
-    const evolutionResult = JSON.parse(response);
-    
-    // Log evolution event
+    const evolutionPlan = JSON.parse(response);
+    const candidates = evolutionPlan.evolution_candidates;
+    let evolvedCount = 0;
+
+    if (candidates && Array.isArray(candidates) && candidates.length > 0) {
+      console.log(`Ecosystem evolution triggered for ${candidates.length} candidates.`);
+      for (const organismId of candidates) {
+        try {
+          const evolutionRequest: EvolutionRequest = {
+            organism_id: organismId,
+            evolution_triggers: evolutionPressure,
+            target_improvements: evolutionPlan.mutation_strategies || ['General performance enhancement'],
+          };
+          await _evolveLogic(evolutionRequest);
+          evolvedCount++;
+        } catch (error) {
+          console.error(`Failed to evolve organism ${organismId} during ecosystem evolution:`, error);
+        }
+      }
+    }
+
+    const summary = `Ecosystem evolution complete. Plan generated with ${candidates?.length || 0} candidates. Successfully triggered evolution for ${evolvedCount} organisms.`;
+    evolutionPlan.execution_summary = summary;
+
+    // Log the event
     await organismDB.exec`
       INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
       VALUES (
         ${null},
         'ecosystem_evolution',
         ${JSON.stringify({
-          evolution_result: evolutionResult,
+          evolution_plan: evolutionPlan,
           evolution_pressure: evolutionPressure,
           selection_criteria: selectionCriteria,
           mutation_rate: mutationRate,
@@ -497,18 +518,12 @@ Return JSON with:
       )
     `;
 
-    return evolutionResult;
-  } catch {
+    return evolutionPlan;
+  } catch (error) {
+    console.error("Failed to parse evolution plan or execute evolution:", error);
     return {
-      evolution_plan: 'Gradual ecosystem evolution',
-      fitness_rankings: organisms.reduce((rankings, o) => {
-        rankings[o.id] = o.performance_metrics.success_rate;
-        return rankings;
-      }, {} as Record<string, number>),
-      evolution_candidates: organisms.slice(0, Math.ceil(organisms.length * 0.3)).map(o => o.id),
-      mutation_strategies: ['Capability enhancement', 'Performance optimization'],
-      diversity_preservation: 'Maintain capability variety',
-      generational_timeline: 'Continuous evolution'
+      error: "Failed to execute ecosystem evolution.",
+      details: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -567,26 +582,35 @@ Return JSON with:
   }
 }
 
-async function generateDiversityRecommendations(diversityAnalysis: any): Promise<string[]> {
-  const recommendations: string[] = [];
-  
-  if (diversityAnalysis.diversity_gaps?.length > 0) {
-    recommendations.push(`Address diversity gaps: ${diversityAnalysis.diversity_gaps.join(', ')}`);
-  }
-  
-  if (diversityAnalysis.optimization_opportunities?.length > 0) {
-    recommendations.push(...diversityAnalysis.optimization_opportunities);
-  }
-  
-  if (diversityAnalysis.diversity_scores) {
-    const lowScores = Object.entries(diversityAnalysis.diversity_scores)
-      .filter(([_, score]) => (score as number) < 0.6)
-      .map(([dimension, _]) => dimension);
-    
-    if (lowScores.length > 0) {
-      recommendations.push(`Improve diversity in: ${lowScores.join(', ')}`);
+async function generateDiversityRecommendations(diversityAnalysis: any): Promise<any[]> {
+  const systemPrompt = `You are a diversity analysis specialist for AI organisms. Based on the analysis, generate actionable, structured recommendations to improve ecosystem diversity.
+
+Return a JSON array of action objects. Each object must have an 'action' key and a 'parameters' key.
+Valid actions are: 'guide_ecosystem_evolution', 'create_organism', 'assign_task'.
+Example: [{ "action": "guide_ecosystem_evolution", "parameters": { "evolution_pressure": ["explore_new_domains"] } }]`;
+
+  const prompt = `Diversity Analysis:
+${JSON.stringify(diversityAnalysis, null, 2)}
+
+Based on this analysis, provide specific, actionable recommendations to improve diversity.`;
+
+  const response = await llmClient.generateText(prompt, systemPrompt);
+
+  try {
+    const recommendations = JSON.parse(response);
+    if (Array.isArray(recommendations) && recommendations.every(r => r.action && r.parameters)) {
+      return recommendations;
     }
+    throw new Error("Invalid recommendation format from LLM.");
+  } catch (error) {
+    console.error("Failed to generate structured diversity recommendations:", error);
+    const fallbackRecommendations: any[] = [];
+    if (diversityAnalysis.diversity_gaps?.length > 0) {
+      fallbackRecommendations.push({
+        action: 'guide_ecosystem_evolution',
+        parameters: { evolution_pressure: [`Address gaps: ${diversityAnalysis.diversity_gaps.join(', ')}`] }
+      });
+    }
+    return fallbackRecommendations;
   }
-  
-  return recommendations;
 }

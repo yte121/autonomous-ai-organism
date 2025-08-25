@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { organismDB } from "./db";
 import { llmClient } from "../llm/client";
+import { VectorStore } from "./vector_store";
 import type { Organism, KnowledgeEntry } from "./types";
 
 interface RAGQueryRequest {
@@ -18,7 +19,7 @@ interface RAGQueryResponse {
   sources: string[];
 }
 
-// Performs RAG 3.0 enhanced queries with contextual knowledge retrieval.
+// Performs RAG queries with contextual knowledge retrieval.
 export const ragQuery = api<RAGQueryRequest, RAGQueryResponse>(
   { expose: true, method: "POST", path: "/organisms/:organism_id/rag-query" },
   async (req) => {
@@ -30,13 +31,11 @@ export const ragQuery = api<RAGQueryRequest, RAGQueryResponse>(
       throw new Error("Organism not found");
     }
 
-    // Retrieve relevant knowledge using advanced RAG techniques
+    // Retrieve relevant knowledge using vector search
     const relevantKnowledge = await retrieveRelevantKnowledge(
       req.organism_id,
       req.query,
-      req.context_limit || 10,
-      req.knowledge_types,
-      req.confidence_threshold || 0.5
+      req.context_limit || 10
     );
 
     // Generate contextual answer using retrieved knowledge
@@ -58,55 +57,51 @@ export const ragQuery = api<RAGQueryRequest, RAGQueryResponse>(
   }
 );
 
-interface KnowledgeIndexRequest {
+export interface KnowledgeIndexRequest {
   organism_id: string;
   content: string;
-  content_type: 'text' | 'code' | 'documentation' | 'research';
+  content_type: 'text' | 'code' | 'documentation' | 'research' | 'internet_research' | 'codebase_analysis' | 'technology_pattern' | 'computer_operation';
   source: string;
   metadata?: Record<string, any>;
+  confidence_score?: number;
 }
 
-// Indexes new knowledge using RAG 3.0 techniques.
+// Indexes new knowledge using vector embeddings.
 export const indexKnowledge = api<KnowledgeIndexRequest, { knowledge_id: string }>(
   { expose: true, method: "POST", path: "/organisms/:organism_id/index-knowledge" },
   async (req) => {
-    // Extract semantic embeddings and key concepts
-    const semanticAnalysis = await extractSemanticFeatures(req.content, req.content_type);
-    
-    // Create knowledge chunks for better retrieval
-    const knowledgeChunks = await createKnowledgeChunks(req.content, semanticAnalysis);
-    
-    // Store indexed knowledge
-    const knowledgeEntries: string[] = [];
-    
-    for (const chunk of knowledgeChunks) {
-      const knowledgeEntry = await organismDB.queryRow<{ id: string }>`
-        INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
-        VALUES (
-          ${req.organism_id},
-          ${req.content_type},
-          ${JSON.stringify({
-            original_content: req.content,
-            chunk: chunk.content,
-            semantic_features: chunk.semanticFeatures,
-            metadata: req.metadata || {},
-            chunk_index: chunk.index,
-            total_chunks: knowledgeChunks.length
-          })},
-          ${req.source},
-          ${chunk.confidence}
-        )
-        RETURNING id
-      `;
-      
-      if (knowledgeEntry) {
-        knowledgeEntries.push(knowledgeEntry.id);
-      }
-    }
-
-    return { knowledge_id: knowledgeEntries[0] || 'unknown' };
+    return _indexKnowledgeLogic(req);
   }
 );
+
+export async function _indexKnowledgeLogic(req: KnowledgeIndexRequest): Promise<{ knowledge_id: string }> {
+  // 1. Store the knowledge metadata in the database to get an ID
+  const knowledgeEntry = await organismDB.queryRow<{ id: string }>`
+    INSERT INTO knowledge_base (organism_id, knowledge_type, content, source, confidence_score)
+    VALUES (${req.organism_id}, ${req.content_type}, ${JSON.stringify({
+      text: req.content,
+      metadata: req.metadata || {},
+    })}, ${req.source}, ${req.confidence_score || 0.8})
+    RETURNING id
+  `;
+
+  if (!knowledgeEntry) {
+    throw new Error("Failed to create knowledge entry in database.");
+  }
+  const knowledgeId = knowledgeEntry.id;
+
+  // 2. Generate an embedding for the content
+  const embedding = await llmClient.generateEmbedding(req.content);
+
+  // 3. Add the embedding to the vector store
+  const vectorStore = await VectorStore.getInstance();
+  await vectorStore.addVector(embedding, knowledgeId);
+
+  // 4. Persist the vector store index
+  await vectorStore.save();
+
+  return { knowledge_id: knowledgeId };
+}
 
 interface SemanticSearchRequest {
   organism_id: string;
@@ -130,83 +125,50 @@ export const semanticSearch = api<SemanticSearchRequest, { results: KnowledgeEnt
   }
 );
 
-interface KnowledgeGraphRequest {
-  organism_id: string;
-  concept: string;
-  depth?: number;
-  relationship_types?: string[];
-}
-
-// Builds and queries knowledge graphs for complex reasoning.
-export const queryKnowledgeGraph = api<KnowledgeGraphRequest, { graph: any }>(
-  { expose: true, method: "POST", path: "/organisms/:organism_id/knowledge-graph" },
-  async (req) => {
-    const knowledgeGraph = await buildKnowledgeGraph(
-      req.organism_id,
-      req.concept,
-      req.depth || 3,
-      req.relationship_types
-    );
-
-    return { graph: knowledgeGraph };
-  }
-);
-
 async function retrieveRelevantKnowledge(
   organismId: string,
   query: string,
   contextLimit: number,
-  knowledgeTypes?: string[],
-  confidenceThreshold?: number
 ): Promise<KnowledgeEntry[]> {
-  let whereClause = `organism_id = $1 AND confidence_score >= $2`;
-  const params: any[] = [organismId, confidenceThreshold || 0.5];
-  let paramIndex = 3;
-
-  if (knowledgeTypes && knowledgeTypes.length > 0) {
-    whereClause += ` AND knowledge_type = ANY($${paramIndex})`;
-    params.push(knowledgeTypes);
-    paramIndex++;
-  }
-
-  // Retrieve knowledge entries
-  const knowledgeEntries = await organismDB.rawQueryAll<KnowledgeEntry>(
-    `SELECT * FROM knowledge_base 
-     WHERE ${whereClause}
-     ORDER BY confidence_score DESC, created_at DESC
-     LIMIT $${paramIndex}`,
-    ...params,
-    contextLimit
-  );
-
-  // Perform semantic ranking
-  const rankedKnowledge = await rankKnowledgeByRelevance(query, knowledgeEntries);
-
-  return rankedKnowledge;
+  // Perform semantic ranking to find the most relevant knowledge
+  return await rankKnowledgeByRelevance(query, contextLimit, organismId);
 }
 
 async function rankKnowledgeByRelevance(
   query: string,
-  knowledgeEntries: KnowledgeEntry[]
+  k: number,
+  organismId: string,
 ): Promise<KnowledgeEntry[]> {
-  // Simulate semantic ranking (in a real implementation, this would use embeddings)
-  const rankedEntries = knowledgeEntries.map(entry => {
-    const relevanceScore = calculateSemanticSimilarity(query, entry.content);
-    return { ...entry, relevance_score: relevanceScore };
-  });
+  // 1. Generate an embedding for the query
+  const queryEmbedding = await llmClient.generateEmbedding(query);
 
-  return rankedEntries
-    .sort((a, b) => (b as any).relevance_score - (a as any).relevance_score)
-    .slice(0, 10);
-}
+  // 2. Search the vector store for the k nearest neighbors
+  const vectorStore = await VectorStore.getInstance();
+  const searchResults = await vectorStore.search(queryEmbedding, k);
 
-function calculateSemanticSimilarity(query: string, content: any): number {
-  // Simplified similarity calculation (in production, use proper embeddings)
-  const queryWords = query.toLowerCase().split(' ');
-  const contentText = JSON.stringify(content).toLowerCase();
+  if (searchResults.length === 0) {
+    return [];
+  }
+
+  // 3. Fetch the full knowledge entries from the database
+  const resultIds = searchResults.map(r => r.id);
   
-  const matches = queryWords.filter(word => contentText.includes(word));
-  return matches.length / queryWords.length;
+  // Use a proper parameterized query to avoid SQL injection, even with internal IDs.
+  // The syntax `$1::uuid[]` is for Postgres to correctly handle an array of UUIDs.
+  const knowledgeEntries = await organismDB.queryAll<KnowledgeEntry>`
+    SELECT * FROM knowledge_base
+    WHERE id = ANY(${resultIds}) AND organism_id = ${organismId}
+  `;
+
+  // 4. Sort the results based on the search distance
+  const entryMap = new Map(knowledgeEntries.map(e => [e.id, e]));
+  const sortedEntries = searchResults
+    .map(result => ({ entry: entryMap.get(result.id), distance: result.distance }))
+    .filter(item => item.entry)
+    .sort((a, b) => a.distance - b.distance)
+    .map(item => item.entry!);
+
+  return sortedEntries;
 }
 
 async function generateContextualAnswer(
@@ -246,221 +208,41 @@ function calculateAnswerConfidence(
   return (avgConfidence * 0.5) + (knowledgeDepth * 0.3) + (answerLength * 0.2);
 }
 
-async function extractSemanticFeatures(
-  content: string,
-  contentType: string
-): Promise<any> {
-  const systemPrompt = 'You are a semantic feature extractor. Extract key concepts, entities, relationships, and semantic features from the provided content.';
-  
-  const prompt = `Content Type: ${contentType}
-Content: ${content}
-
-Extract and return as JSON:
-1. Key concepts and entities
-2. Relationships between concepts
-3. Semantic categories
-4. Important keywords
-5. Context indicators`;
-
-  const response = await llmClient.generateText(prompt, systemPrompt);
-  
-  try {
-    return JSON.parse(response);
-  } catch {
-    return {
-      concepts: [],
-      entities: [],
-      relationships: [],
-      categories: [contentType],
-      keywords: content.split(' ').slice(0, 10)
-    };
-  }
-}
-
-async function createKnowledgeChunks(
-  content: string,
-  semanticAnalysis: any
-): Promise<Array<{
-  content: string;
-  semanticFeatures: any;
-  confidence: number;
-  index: number;
-}>> {
-  const maxChunkSize = 500;
-  const chunks: any[] = [];
-  
-  if (content.length <= maxChunkSize) {
-    return [{
-      content,
-      semanticFeatures: semanticAnalysis,
-      confidence: 0.9,
-      index: 0
-    }];
-  }
-
-  // Split content into semantic chunks
-  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  let currentChunk = '';
-  let chunkIndex = 0;
-
-  for (const sentence of sentences) {
-    if (currentChunk.length + sentence.length > maxChunkSize && currentChunk.length > 0) {
-      chunks.push({
-        content: currentChunk.trim(),
-        semanticFeatures: semanticAnalysis,
-        confidence: 0.8,
-        index: chunkIndex++
-      });
-      currentChunk = sentence;
-    } else {
-      currentChunk += (currentChunk ? '. ' : '') + sentence;
-    }
-  }
-
-  if (currentChunk.trim().length > 0) {
-    chunks.push({
-      content: currentChunk.trim(),
-      semanticFeatures: semanticAnalysis,
-      confidence: 0.8,
-      index: chunkIndex
-    });
-  }
-
-  return chunks;
-}
-
 async function performSemanticSearch(
   organismId: string,
   searchQuery: string,
   searchType: string,
   maxResults: number
 ): Promise<KnowledgeEntry[]> {
-  // Get all knowledge for the organism
-  const allKnowledge = await organismDB.queryAll<KnowledgeEntry>`
-    SELECT * FROM knowledge_base 
-    WHERE organism_id = ${organismId}
-    ORDER BY created_at DESC
-  `;
-
-  // Perform search based on type
-  let searchResults: KnowledgeEntry[] = [];
-
+  // For now, all searches will be semantic.
+  // A future implementation could re-introduce keyword or hybrid search.
   switch (searchType) {
     case 'semantic':
-      searchResults = await performSemanticRanking(searchQuery, allKnowledge);
-      break;
-    case 'keyword':
-      searchResults = performKeywordSearch(searchQuery, allKnowledge);
-      break;
     case 'hybrid':
-      const semanticResults = await performSemanticRanking(searchQuery, allKnowledge);
-      const keywordResults = performKeywordSearch(searchQuery, allKnowledge);
-      searchResults = combineSearchResults(semanticResults, keywordResults);
-      break;
+      return await rankKnowledgeByRelevance(searchQuery, maxResults, organismId);
+
+    case 'keyword':
+      // Fallback to a simple keyword search if explicitly requested
+      return await performKeywordSearch(searchQuery, maxResults, organismId);
+
+    default:
+      return [];
   }
-
-  return searchResults.slice(0, maxResults);
-}
-
-async function performSemanticRanking(
-  query: string,
-  knowledge: KnowledgeEntry[]
-): Promise<KnowledgeEntry[]> {
-  return rankKnowledgeByRelevance(query, knowledge);
 }
 
 function performKeywordSearch(
   query: string,
-  knowledge: KnowledgeEntry[]
-): KnowledgeEntry[] {
-  const queryWords = query.toLowerCase().split(' ');
-  
-  return knowledge.filter(entry => {
-    const contentText = JSON.stringify(entry.content).toLowerCase();
-    return queryWords.some(word => contentText.includes(word));
-  });
-}
-
-function combineSearchResults(
-  semanticResults: KnowledgeEntry[],
-  keywordResults: KnowledgeEntry[]
-): KnowledgeEntry[] {
-  const combined = new Map<string, KnowledgeEntry>();
-  
-  // Add semantic results with higher weight
-  semanticResults.forEach((entry, index) => {
-    combined.set(entry.id, { ...entry, combined_score: (semanticResults.length - index) * 2 });
-  });
-  
-  // Add keyword results
-  keywordResults.forEach((entry, index) => {
-    if (combined.has(entry.id)) {
-      const existing = combined.get(entry.id)!;
-      combined.set(entry.id, { 
-        ...existing, 
-        combined_score: (existing as any).combined_score + (keywordResults.length - index) 
-      });
-    } else {
-      combined.set(entry.id, { ...entry, combined_score: keywordResults.length - index });
-    }
-  });
-  
-  return Array.from(combined.values())
-    .sort((a, b) => (b as any).combined_score - (a as any).combined_score);
-}
-
-async function buildKnowledgeGraph(
+  maxResults: number,
   organismId: string,
-  concept: string,
-  depth: number,
-  relationshipTypes?: string[]
-): Promise<any> {
-  // Retrieve knowledge related to the concept
-  const relatedKnowledge = await organismDB.rawQueryAll<KnowledgeEntry>(
-    `SELECT * FROM knowledge_base 
-     WHERE organism_id = $1 
-     AND (content::text ILIKE $2 OR source ILIKE $2)
-     ORDER BY confidence_score DESC`,
-    organismId,
-    `%${concept}%`
-  );
+): Promise<KnowledgeEntry[]> {
+  const queryWords = query.toLowerCase().split(' ').map(w => `%${w}%`);
 
-  // Build graph structure
-  const graph = {
-    nodes: [],
-    edges: [],
-    concept: concept,
-    depth: depth
-  };
-
-  // Add concept as central node
-  graph.nodes.push({
-    id: concept,
-    type: 'concept',
-    label: concept,
-    level: 0
-  });
-
-  // Add related knowledge as nodes and create edges
-  relatedKnowledge.forEach((knowledge, index) => {
-    const nodeId = `knowledge_${knowledge.id}`;
-    
-    graph.nodes.push({
-      id: nodeId,
-      type: 'knowledge',
-      label: knowledge.knowledge_type,
-      content: knowledge.content,
-      confidence: knowledge.confidence_score,
-      level: 1
-    });
-
-    graph.edges.push({
-      source: concept,
-      target: nodeId,
-      type: 'relates_to',
-      weight: knowledge.confidence_score
-    });
-  });
-
-  return graph;
+  // This is a simplified keyword search. It's not very efficient on large datasets.
+  return organismDB.queryAll<KnowledgeEntry>`
+    SELECT * FROM knowledge_base
+    WHERE organism_id = ${organismId}
+    AND content::text ILIKE ANY(${queryWords})
+    ORDER BY created_at DESC
+    LIMIT ${maxResults}
+  `;
 }
