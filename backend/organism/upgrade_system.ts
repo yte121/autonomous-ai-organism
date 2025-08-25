@@ -71,6 +71,15 @@ export const upgradeOrganism = api<UpgradeRequest, { result: any }>(
         break;
       }
 
+      case 'prompt': {
+        result = await _executeComputerOperationLogic('self_modify_prompt', {
+          target_file: plan.parameters.target_file,
+          prompt_key: plan.parameters.prompt_key,
+          new_prompt_text: plan.parameters.new_prompt_text,
+        });
+        break;
+      }
+
       default:
         result = {
           message: `Unknown or unsupported upgrade type: '${plan.upgrade_type}'`,
@@ -201,11 +210,12 @@ async function generateUpgradePlan(
   requestedType: string,
   targetMetrics?: Record<string, number>
 ): Promise<any> {
+  // <PROMPT-START:generateUpgradePlan>
   const systemPrompt = `You are an AI Organism Upgrade Planner. Your job is to analyze an organism and a requested upgrade type, then create a structured, actionable plan.
 
 Your response MUST be a JSON object with the following structure:
 {
-  "upgrade_type": "knowledge" | "capability" | "performance" | "architecture",
+  "upgrade_type": "knowledge" | "capability" | "performance" | "architecture" | "prompt",
   "parameters": {
     // for all types
     "reasoning": string,
@@ -221,14 +231,20 @@ Your response MUST be a JSON object with the following structure:
 
     // if architecture or performance (code modification)
     "target_file": string | null,
-    "change_description": string | null
+    "change_description": string | null,
+
+    // if prompt
+    "prompt_key": string | null,
+    "new_prompt_text": string | null
   }
 }
 
 Analyze the organism's profile and decide on the most appropriate upgrade_type and parameters.
 - For 'knowledge', provide learning objectives.
 - For 'capability', provide target improvements.
-- For 'architecture' or 'performance', provide a target_file (e.g., 'backend/organism/evolve.ts') and a detailed change_description.`;
+- For 'architecture' or 'performance', provide a target_file (e.g., 'backend/organism/evolve.ts') and a detailed change_description.
+- For 'prompt', provide the target_file, the prompt_key, and the new_prompt_text.`;
+  // <PROMPT-END:generateUpgradePlan>
 
   const prompt = `**Organism Profile:**
 - Name: ${organism.name}
