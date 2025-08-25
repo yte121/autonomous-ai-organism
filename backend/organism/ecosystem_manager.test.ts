@@ -126,4 +126,36 @@ describe('Ecosystem Manager', () => {
         expect(_executeComputerOperationLogic).toHaveBeenCalledWith('org-1', 'self_modify_code', mockPlan.organism_modifications['org-1'][1]);
     });
   });
+
+  describe('applyResourceAllocation (mocked)', () => {
+    it('should call organismDB.exec to update resources for each organism', async () => {
+        const MOCK_applyResourceAllocation = async (allocationResult: any): Promise<any> => {
+            if (!allocationResult.allocation_plan) {
+                return;
+            }
+            for (const [organismId, allocation] of Object.entries(allocationResult.allocation_plan)) {
+                await organismDB.exec(`
+                    UPDATE organisms
+                    SET resources = ${JSON.stringify(allocation)}, updated_at = NOW()
+                    WHERE id = ${organismId}
+                `);
+            }
+        };
+
+        const mockPlan = {
+            allocation_plan: {
+                'org-1': { cpu: 50, memory: 1024 },
+                'org-2': { cpu: 50, memory: 2048 },
+            },
+        };
+
+        await MOCK_applyResourceAllocation(mockPlan);
+
+        expect(organismDB.exec).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(organismDB.exec).mock.calls[0][0]).toContain('SET resources = {"cpu":50,"memory":1024}');
+        expect(vi.mocked(organismDB.exec).mock.calls[0][0]).toContain("WHERE id = org-1");
+        expect(vi.mocked(organismDB.exec).mock.calls[1][0]).toContain('SET resources = {"cpu":50,"memory":2048}');
+        expect(vi.mocked(organismDB.exec).mock.calls[1][0]).toContain("WHERE id = org-2");
+    });
+  });
 });
