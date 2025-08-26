@@ -4,6 +4,8 @@
   "type": "module",
   "packageManager": "bun",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
     "test": "vitest"
   },
   "dependencies": {
