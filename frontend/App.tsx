@@ -2,9 +2,9 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
-import Dashboard from './components/Dashboard';
-import OrganismManager from './components/OrganismManager';
-import TaskManager from './components/TaskManager';
+import Dashboard from './pages/Dashboard';
+import OrganismManager from './pages/OrganismManager';
+import TaskManager from './pages/TaskManager';
 import Navigation from './components/Navigation';
 import ErrorBoundary from './components/ErrorBoundary';
 
