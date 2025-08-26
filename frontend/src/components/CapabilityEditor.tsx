@@ -65,14 +65,16 @@ const CapabilityEditor = ({
       </div>
 
       {/* Display currently selected capabilities */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" data-testid="selected-capabilities">
         {capabilities.length > 0 ? (
           capabilities.map((capability) => (
             <Badge key={capability} variant="secondary" className="flex items-center gap-1.5">
               {capability}
               <X
+                aria-label={`Remove ${capability}`}
                 className="h-3 w-3 cursor-pointer hover:text-red-500"
                 onClick={() => removeCapability(capability)}
+                role="button"
               />
             </Badge>
           ))
@@ -84,7 +86,7 @@ const CapabilityEditor = ({
       {/* Display predefined capabilities for quick add */}
       <div>
         <Label className="text-sm text-gray-600">Suggestions:</Label>
-        <div className="flex flex-wrap gap-1 mt-1">
+        <div className="flex flex-wrap gap-1 mt-1" data-testid="suggested-capabilities">
           {predefinedCapabilities.map((capability) => (
             <Badge
               key={capability}

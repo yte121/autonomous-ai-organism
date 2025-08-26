@@ -4,15 +4,15 @@ import backend from '~backend/client';
 
 import OrganismStatusChart from '@/components/OrganismStatusChart';
 import TaskProgressChart from '@/components/TaskProgressChart';
-import ErrorState from '@/components/ErrorState';
-import LoadingSkeleton from '@/components/LoadingSkeleton';
-import DashboardStats from '@/components/dashboard/DashboardStats';
-import RecentActivity from '@/components/dashboard/RecentActivity';
+import ErrorState from '@/src/components/ErrorState';
+import LoadingSkeleton from '@/src/components/LoadingSkeleton';
+import DashboardStats from '@/src/components/dashboard/DashboardStats';
+import RecentActivity from '@/src/components/dashboard/RecentActivity';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 // A skeleton loader specific to the Dashboard page
 const DashboardSkeleton = () => (
-  <div className="space-y-6">
+  <div className="space-y-6" data-testid="dashboard-skeleton">
     {/* Title Skeleton */}
     <div>
       <LoadingSkeleton className="h-8 w-1/2" />

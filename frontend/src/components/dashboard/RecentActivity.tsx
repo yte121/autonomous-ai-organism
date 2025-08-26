@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Brain, PackagePlus } from 'lucide-react';
-import EmptyState from '@/components/EmptyState';
+import EmptyState from '@/src/components/EmptyState';
 import type { Organism } from '~backend/organism/types';
 
 interface RecentActivityProps {
