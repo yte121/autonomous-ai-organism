@@ -106,6 +106,37 @@ You will need two terminals.
   ```
   The frontend will be available at `http://localhost:5173`.
 
+## Deployment with Docker
+
+The entire application can be built and run using Docker and Docker Compose, which is the recommended way to run it in a production-like environment or on a platform like Deepnote.
+
+1.  **Build and Run the Services:**
+    From the root of the repository, run:
+    ```bash
+    docker-compose up --build
+    ```
+    This command will:
+    - Build the Docker image for the backend service.
+    - Build the Docker image for the frontend service.
+    - Start the backend, frontend, and a PostgreSQL database.
+
+2.  **Access the Application:**
+    - The **frontend** will be available at `http://localhost:8080`.
+    - The **backend** API will be available at `http://localhost:4000`.
+
+## Deployment on Render.com
+
+This repository is configured for continuous deployment on [Render](https://render.com/). You can deploy your own version of this application by following these steps:
+
+1.  **Fork this Repository:** Create your own copy of this repository on GitHub.
+2.  **Create a New Blueprint Service on Render:**
+    - Go to your Render Dashboard and click "New" -> "Blueprint".
+    - Connect the GitHub repository you just forked.
+3.  **Deploy:**
+    - Render will automatically detect the `render.yaml` file and pre-fill all the service configurations.
+    - Click "Create" to deploy the database, backend, and frontend.
+    - The first build will take a few minutes. Once complete, your application will be live at the URL provided by Render for the frontend service.
+
 ## Configuration
 
 The application's core parameters are centralized in `backend/config.ts`. This file uses the Encore configuration framework to manage settings for various parts of the system.

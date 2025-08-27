@@ -16,8 +16,11 @@ RUN bun install --frozen-lockfile
 # Copy the rest of the source code
 COPY . .
 
-# Build the application
-RUN bun run build
+# Define the build-time variable
+ARG VITE_CLIENT_TARGET
+
+# Build the application, passing in the environment variable
+RUN VITE_CLIENT_TARGET=$VITE_CLIENT_TARGET bun run build
 
 # Stage 2: Serve the static files with Nginx
 FROM nginx:stable-alpine
